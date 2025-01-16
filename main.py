@@ -1,3 +1,4 @@
+import argparse
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
@@ -21,9 +22,10 @@ class FileConcatenator(tk.Tk):
     into a single markdown file. Provides language-based filtering, search functionality, 
     and a preview of progress via a progress bar.
     """
-    def __init__(self) -> None:
+    def __init__(self, working_dir: Path = None) -> None:
         super().__init__()
-
+        
+        self.working_dir = working_dir or Path.cwd()
         self.title("SOTA File Concatenator")
         self.geometry("700x500")
 
@@ -111,8 +113,8 @@ class FileConcatenator(tk.Tk):
             widget.destroy()
         self.checkboxes.clear()
 
-        # Determine current directory
-        current_dir = Path.cwd()
+        # Use working directory
+        current_dir = self.working_dir
 
         # Get selected language and allowed extensions
         selected_language = self.language_var.get()
@@ -138,6 +140,17 @@ class FileConcatenator(tk.Tk):
             if item.is_dir():
                 directories.append(item)
             else:
+                # Check if file is binary
+                try:
+                    with item.open('r', encoding='utf-8', errors='strict') as f:
+                        f.read(1024)
+                except UnicodeDecodeError:
+                    logging.warning(f"Excluding binary file: {item}")
+                    continue
+                except Exception as e:
+                    logging.error(f"Error checking file {item}: {e}")
+                    continue
+
                 if selected_language != "All Files":
                     if item.suffix.lower() not in allowed_extensions:
                         continue
@@ -188,13 +201,18 @@ class FileConcatenator(tk.Tk):
 
     def get_file_content(self, filepath: Path) -> str:
         """
-        Safely read the content of a file using UTF-8 encoding.
+        Safely read the content of a file using UTF-8 encoding, skipping binary files.
 
         :param filepath: The path to the file.
-        :return: Content of the file as a string or an error message.
+        :return: Content of the file as a string or an empty string if binary.
         """
         try:
-            return filepath.read_text(encoding='utf-8', errors='replace')
+            # Attempt to read the file with strict error handling
+            return filepath.read_text(encoding='utf-8', errors='strict')
+        except UnicodeDecodeError:
+            # File is likely binary
+            logging.warning(f"Skipping binary file: {filepath}")
+            return ""
         except Exception as e:
             logging.error(f"Error reading file {filepath}: {e}", exc_info=True)
             return f"Error reading file: {str(e)}"
@@ -222,11 +240,12 @@ class FileConcatenator(tk.Tk):
                         continue
 
                 full_path = root_path / file_name
-                relative_path = full_path.relative_to(Path.cwd())
-
-                ext = full_path.suffix[1:] if full_path.suffix else 'txt'
                 file_content = self.get_file_content(full_path)
+                if not file_content:  # Skip binary or unreadable files
+                    continue
 
+                relative_path = full_path.relative_to(self.working_dir)
+                ext = full_path.suffix[1:] if full_path.suffix else 'txt'
                 output_content.append(f"\n{relative_path}")
                 output_content.append(f"```{ext}")
                 output_content.append(file_content)
@@ -242,7 +261,7 @@ class FileConcatenator(tk.Tk):
         selected files and directories. Displays a progress bar during the process.
         """
         output_content: List[str] = []
-        current_dir = Path.cwd()
+        current_dir = self.working_dir
 
         # Collect the files and directories that will actually be processed
         items_to_process = []
@@ -274,9 +293,11 @@ class FileConcatenator(tk.Tk):
         for item_name in items_to_process:
             full_path = current_dir / item_name
             if full_path.is_file():
-                ext = full_path.suffix[1:] if full_path.suffix else 'txt'
                 file_content = self.get_file_content(full_path)
-                
+                if not file_content:  # Skip binary or unreadable files
+                    continue
+                    
+                ext = full_path.suffix[1:] if full_path.suffix else 'txt'
                 output_content.append(f"\n{full_path.name}")
                 output_content.append(f"```{ext}")
                 output_content.append(file_content)
@@ -306,5 +327,19 @@ class FileConcatenator(tk.Tk):
 
 
 if __name__ == "__main__":
-    app = FileConcatenator()
+    parser = argparse.ArgumentParser(description="File Concatenator Application")
+    parser.add_argument(
+        "--dir", 
+        type=Path, 
+        default=Path.cwd(),
+        help="The working directory to use."
+    )
+    args = parser.parse_args()
+    
+    # Validate if directory exists
+    if not args.dir.exists() or not args.dir.is_dir():
+        print(f"Error: Directory '{args.dir}' does not exist or is not a directory")
+        exit(1)
+        
+    app = FileConcatenator(working_dir=args.dir)
     app.mainloop()
