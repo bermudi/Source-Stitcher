@@ -309,9 +309,19 @@ class FileConcatenator(tk.Tk):
             elif full_path.is_dir():
                 self.process_directory(full_path, output_content, total_files, progress_step)
 
-        # Generate output file
+        # Show save file dialog
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_filename = f"concatenated_{timestamp}.md"
+        initial_filename = f"concatenated_{timestamp}.md"
+        output_filename = filedialog.asksaveasfilename(
+            defaultextension=".md",
+            initialfile=initial_filename,
+            filetypes=[("Markdown files", "*.md"), ("All files", "*.*")],
+            title="Save Concatenated File"
+        )
+
+        if not output_filename:  # User cancelled
+            self.progress_bar["value"] = 0.0
+            return
 
         try:
             with open(output_filename, 'w', encoding='utf-8') as f:
