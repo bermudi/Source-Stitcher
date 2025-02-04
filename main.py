@@ -1,13 +1,10 @@
-import argparse
-import tkinter as tk
-from tkinter import ttk
-from tkinter import messagebox
-from tkinter import filedialog
-import logging
+import sys
 import os
+import logging
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict
+
+from PyQt6 import QtCore, QtWidgets
 
 logging.basicConfig(
     level=logging.INFO,
@@ -16,21 +13,20 @@ logging.basicConfig(
 )
 
 
-class FileConcatenator(tk.Tk):
+class FileConcatenator(QtWidgets.QMainWindow):
     """
-    A tkinter-based graphical application to select and concatenate multiple files
+    A PyQt6-based graphical application to select and concatenate multiple files
     into a single markdown file. Provides language-based filtering, search functionality,
     and a preview of progress via a progress bar.
     """
     def __init__(self, working_dir: Path = None) -> None:
         super().__init__()
-
         self.working_dir = working_dir or Path.cwd()
-        self.title("SOTA File Concatenator")
-        self.geometry("700x500")
+        self.setWindowTitle("SOTA File Concatenator")
+        self.resize(700, 500)
 
         # Define language extensions
-        self.language_extensions: Dict[str, List[str]] = {
+        self.language_extensions = {
             "All Files": ["*"],
             "Python": [".py", ".pyw", ".pyx"],
             "JavaScript": [".js", ".jsx", ".ts", ".tsx"],
@@ -44,108 +40,110 @@ class FileConcatenator(tk.Tk):
             "HTML/CSS": [".html", ".htm", ".css"],
         }
 
-        self.checkboxes: Dict[str, tk.BooleanVar] = {}
-        self.create_widgets()
+        # Dictionary to hold checkboxes by item name
+        self.checkboxes = {}
+        # Variable to track progress (as float)
+        self.progress_value = 0.0
+
+        self.init_ui()
         self.populate_checkboxes()
 
-    def create_widgets(self) -> None:
-        """Create and place all the GUI components."""
-        # Main frame
-        self.main_frame = ttk.Frame(self)
-        self.main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    def init_ui(self) -> None:
+        """Create and place all PyQt6 widgets."""
+        central_widget = QtWidgets.QWidget(self)
+        self.setCentralWidget(central_widget)
+        main_layout = QtWidgets.QVBoxLayout(central_widget)
 
-        # Top filter/search frame
-        self.top_frame = ttk.Frame(self.main_frame)
-        self.top_frame.pack(fill=tk.X, padx=5, pady=5)
+        # Top filter/search layout
+        top_layout = QtWidgets.QHBoxLayout()
 
-        # Language dropdown
-        ttk.Label(self.top_frame, text="Language Filter:").pack(side=tk.LEFT, padx=5)
-        self.language_var = tk.StringVar(value="All Files")
-        self.language_dropdown = ttk.Combobox(
-            self.top_frame,
-            textvariable=self.language_var,
-            values=list(self.language_extensions.keys()),
-            state="readonly",
-        )
-        self.language_dropdown.pack(side=tk.LEFT, padx=(5, 25))
-        self.language_dropdown.bind('<<ComboboxSelected>>', self.refresh_files)
+        language_label = QtWidgets.QLabel("Language Filter:")
+        top_layout.addWidget(language_label)
 
-        # Optional: Search box
-        ttk.Label(self.top_frame, text="Search:").pack(side=tk.LEFT)
-        self.search_var = tk.StringVar()
-        self.search_entry = ttk.Entry(self.top_frame, textvariable=self.search_var)
-        self.search_entry.pack(side=tk.LEFT, padx=5)
-        self.search_entry.bind("<KeyRelease>", self.refresh_files)
+        self.language_dropdown = QtWidgets.QComboBox()
+        self.language_dropdown.addItems(list(self.language_extensions.keys()))
+        self.language_dropdown.setCurrentText("All Files")
+        top_layout.addWidget(self.language_dropdown)
+        self.language_dropdown.currentTextChanged.connect(self.refresh_files)
 
-        # Scrollable frame for file/directory checkboxes
-        self.canvas = tk.Canvas(self.main_frame)
-        self.scrollbar = ttk.Scrollbar(self.main_frame, orient="vertical", command=self.canvas.yview)
-        self.scrollable_frame = ttk.Frame(self.canvas)
+        search_label = QtWidgets.QLabel("Search:")
+        top_layout.addWidget(search_label)
 
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")),
-        )
-        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        self.search_entry = QtWidgets.QLineEdit()
+        top_layout.addWidget(self.search_entry)
+        self.search_entry.textChanged.connect(self.refresh_files)
 
-        # Pack scrollbar and canvas
-        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        top_layout.addStretch()
+        main_layout.addLayout(top_layout)
 
-        # Button frame
-        self.button_frame = ttk.Frame(self)
-        self.button_frame.pack(fill=tk.X, padx=10, pady=5)
+        # Scroll area for file/directory checkboxes
+        self.scroll_area = QtWidgets.QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_widget = QtWidgets.QWidget()
+        self.checkbox_layout = QtWidgets.QVBoxLayout(self.scroll_widget)
+        self.scroll_area.setWidget(self.scroll_widget)
+        main_layout.addWidget(self.scroll_area)
 
-        ttk.Button(self.button_frame, text="Select All", command=self.select_all).pack(side=tk.LEFT, padx=5)
-        ttk.Button(self.button_frame, text="Deselect All", command=self.deselect_all).pack(side=tk.LEFT, padx=5)
+        # Bottom button and progress bar layout
+        bottom_layout = QtWidgets.QHBoxLayout()
 
-        # Progress bar
-        self.progress_bar = ttk.Progressbar(self.button_frame, length=200, mode='determinate')
-        self.progress_bar.pack(side=tk.LEFT, padx=25)
+        self.btn_select_all = QtWidgets.QPushButton("Select All")
+        self.btn_select_all.clicked.connect(self.select_all)
+        bottom_layout.addWidget(self.btn_select_all)
 
-        ttk.Button(self.button_frame, text="Generate File", command=self.generate_file).pack(side=tk.RIGHT, padx=5)
+        self.btn_deselect_all = QtWidgets.QPushButton("Deselect All")
+        self.btn_deselect_all.clicked.connect(self.deselect_all)
+        bottom_layout.addWidget(self.btn_deselect_all)
+
+        bottom_layout.addStretch()
+
+        self.progress_bar = QtWidgets.QProgressBar()
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+        bottom_layout.addWidget(self.progress_bar)
+
+        self.btn_generate = QtWidgets.QPushButton("Generate File")
+        self.btn_generate.clicked.connect(self.generate_file)
+        bottom_layout.addWidget(self.btn_generate)
+
+        main_layout.addLayout(bottom_layout)
 
     def populate_checkboxes(self) -> None:
-        """Populate the scrollable frame with checkboxes for directories and files, filtered by language and search term."""
-        # Clear existing checkboxes
-        for widget in self.scrollable_frame.winfo_children():
-            widget.destroy()
+        """Populate the scrollable area with file and directory checkboxes filtered by language and search."""
+        # Clear existing widgets
+        while self.checkbox_layout.count():
+            child = self.checkbox_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
         self.checkboxes.clear()
 
-        # Use working directory
         current_dir = self.working_dir
-
-        # Get selected language and allowed extensions
-        selected_language = self.language_var.get()
+        selected_language = self.language_dropdown.currentText()
         allowed_extensions = self.language_extensions.get(selected_language, ["*"])
+        search_text = self.search_entry.text().lower().strip()
 
-        # Apply a search filter
-        search_text = self.search_var.get().lower().strip()
-
-        # Gather all items in the current directory
         all_items = list(current_dir.iterdir())
         directories = []
         files = []
+        # Avoid the script file itself
+        script_name = Path(__file__).name if '__file__' in globals() else ""
 
         for item in all_items:
-            # Skip hidden files/folders or the script file itself
-            if item.name.startswith('.') or item.name == Path(__file__).name:
+            if item.name.startswith('.') or (script_name and item.name == script_name):
                 continue
-
-            # If search text is present, apply it
             if search_text and search_text not in item.name.lower():
                 continue
 
             if item.is_dir():
                 directories.append(item)
             else:
-                # Check if file is binary
+                # Check if file is binary by trying to read a portion
                 try:
                     with item.open('r', encoding='utf-8', errors='strict') as f:
                         f.read(1024)
                 except UnicodeDecodeError:
-                    logging.warning(f"Excluding binary file: {item}")
+                    logging.warning(f"Skipping binary file: {item}")
                     continue
                 except Exception as e:
                     logging.error(f"Error checking file {item}: {e}")
@@ -156,78 +154,77 @@ class FileConcatenator(tk.Tk):
                         continue
                 files.append(item)
 
-        # Sort directories and files by name
+        # Sort directories and files by name (case-insensitive)
         directories.sort(key=lambda p: p.name.lower())
         files.sort(key=lambda p: p.name.lower())
 
-        # Add directories
+        # Create directory checkboxes if any
         if directories:
-            dir_label = ttk.Label(self.scrollable_frame, text="Directories:", font=('TkDefaultFont', 10, 'bold'))
-            dir_label.pack(anchor="w", padx=5, pady=(5, 2))
+            lbl_dirs = QtWidgets.QLabel("Directories:")
+            font = lbl_dirs.font()
+            font.setBold(True)
+            lbl_dirs.setFont(font)
+            self.checkbox_layout.addWidget(lbl_dirs)
 
             for directory in directories:
-                var = tk.BooleanVar()
-                cb = ttk.Checkbutton(self.scrollable_frame, text=directory.name, variable=var)
-                cb.pack(anchor="w", padx=20, pady=2)  # Indented with larger left padding
-                self.checkboxes[directory.name] = var
+                cb = QtWidgets.QCheckBox(directory.name)
+                self.checkbox_layout.addWidget(cb)
+                self.checkboxes[directory.name] = cb
 
-        # Add files
+        # Create file checkboxes if any
         if files:
             if directories:
-                ttk.Separator(self.scrollable_frame, orient='horizontal').pack(fill='x', padx=5, pady=5)
+                separator = QtWidgets.QFrame()
+                separator.setFrameShape(QtWidgets.QFrame.Shape.HLine)
+                separator.setFrameShadow(QtWidgets.QFrame.Shadow.Sunken)
+                self.checkbox_layout.addWidget(separator)
 
-            file_label = ttk.Label(self.scrollable_frame, text="Files:", font=('TkDefaultFont', 10, 'bold'))
-            file_label.pack(anchor="w", padx=5, pady=(5, 2))
+            lbl_files = QtWidgets.QLabel("Files:")
+            font = lbl_files.font()
+            font.setBold(True)
+            lbl_files.setFont(font)
+            self.checkbox_layout.addWidget(lbl_files)
 
             for file_item in files:
-                var = tk.BooleanVar()
-                cb = ttk.Checkbutton(self.scrollable_frame, text=file_item.name, variable=var)
-                cb.pack(anchor="w", padx=20, pady=2)
-                self.checkboxes[file_item.name] = var
+                cb = QtWidgets.QCheckBox(file_item.name)
+                self.checkbox_layout.addWidget(cb)
+                self.checkboxes[file_item.name] = cb
 
-    def refresh_files(self, event=None) -> None:
-        """Refresh the file/directory listings whenever the language filter or search changes."""
+        self.checkbox_layout.addStretch()
+
+    def refresh_files(self) -> None:
+        """Refresh the list of file/directory checkboxes."""
         self.populate_checkboxes()
 
     def select_all(self) -> None:
         """Select all checkboxes."""
-        for var in self.checkboxes.values():
-            var.set(True)
+        for cb in self.checkboxes.values():
+            cb.setChecked(True)
 
     def deselect_all(self) -> None:
         """Deselect all checkboxes."""
-        for var in self.checkboxes.values():
-            var.set(False)
+        for cb in self.checkboxes.values():
+            cb.setChecked(False)
 
     def get_file_content(self, filepath: Path) -> str:
         """
-        Safely read the content of a file using UTF-8 encoding, skipping binary files.
-
-        :param filepath: The path to the file.
-        :return: Content of the file as a string or an empty string if binary.
+        Safely read the content of a file using UTF-8 encoding, skipping binary/unreadable files.
         """
         try:
-            # Attempt to read the file with strict error handling
             return filepath.read_text(encoding='utf-8', errors='strict')
         except UnicodeDecodeError:
-            # File is likely binary
             logging.warning(f"Skipping binary file: {filepath}")
             return ""
         except Exception as e:
             logging.error(f"Error reading file {filepath}: {e}", exc_info=True)
             return f"Error reading file: {str(e)}"
 
-    def process_directory(self, dir_path: Path, output_content: List[str], total_files: int, progress_step: float) -> None:
+    def process_directory(self, dir_path: Path, output_content: list, progress_step: float) -> None:
         """
-        Recursively process a directory by appending the content of files
-        (matching the selected language filter) to output_content.
-
-        :param dir_path: Path object representing the directory to process.
-        :param output_content: List of strings to store file contents.
-        :param total_files: Total number of files to process for the progress bar.
-        :param progress_step: The amount (between 0 and 100) that each file adds to the progress bar.
+        Recursively process a directory by appending file contents (that match the selected language filter)
+        to output_content and update the progress bar accordingly.
         """
-        selected_language = self.language_var.get()
+        selected_language = self.language_dropdown.currentText()
         allowed_extensions = self.language_extensions[selected_language]
 
         for root, _, files in os.walk(dir_path):
@@ -241,120 +238,120 @@ class FileConcatenator(tk.Tk):
 
                 full_path = root_path / file_name
                 file_content = self.get_file_content(full_path)
-                if not file_content:  # Skip binary or unreadable files
+                if not file_content:
                     continue
 
-                relative_path = full_path.relative_to(self.working_dir)
+                try:
+                    relative_path = full_path.relative_to(self.working_dir)
+                except ValueError:
+                    relative_path = full_path
                 ext = full_path.suffix[1:] if full_path.suffix else 'txt'
                 output_content.append(f"\n{relative_path}")
                 output_content.append(f"```{ext}")
                 output_content.append(file_content)
                 output_content.append("```\n")
 
-                # Update the progress bar
-                self.progress_bar["value"] += progress_step
-                self.update_idletasks()
+                self.progress_value += progress_step
+                self.progress_bar.setValue(int(min(100, self.progress_value)))
+                QtWidgets.QApplication.processEvents()
 
     def generate_file(self) -> None:
         """
-        Generate a markdown file containing the concatenated contents of
-        selected files and directories. Displays a progress bar during the process.
+        Generate a markdown file containing the concatenated contents of selected files and directories.
+        Updates a progress bar during processing and shows a save dialog at the end.
         """
-        output_content: List[str] = []
+        output_content = []
         current_dir = self.working_dir
-
-        # Collect the files and directories that will actually be processed
-        items_to_process = []
-        for item_name, var in self.checkboxes.items():
-            if var.get():
-                items_to_process.append(item_name)
+        items_to_process = [name for name, cb in self.checkboxes.items() if cb.isChecked()]
 
         if not items_to_process:
-            messagebox.showwarning("No Selection", "Please select at least one file or directory.")
+            QtWidgets.QMessageBox.warning(
+                self, "No Selection", "Please select at least one file or directory."
+            )
             return
 
-        # Count how many files will be read for the progress bar
-        # This is approximate—we simply count all files in selected directories + selected files.
+        # Approximate the total number of files for progress tracking
         total_files = 0
         for item_name in items_to_process:
             full_path = current_dir / item_name
             if full_path.is_file():
                 total_files += 1
             elif full_path.is_dir():
-                for _ in full_path.rglob("*"):
-                    total_files += 1
+                for path in full_path.rglob('*'):
+                    if path.is_file():
+                        total_files += 1
 
-        # Guard against zero (in case all directories are empty)
         total_files = max(total_files, 1)
         progress_step = 100.0 / total_files
-        self.progress_bar["value"] = 0.0
+        self.progress_value = 0.0
+        self.progress_bar.setValue(0)
 
-        # Process files and directories
         for item_name in items_to_process:
             full_path = current_dir / item_name
             if full_path.is_file():
                 file_content = self.get_file_content(full_path)
-                if not file_content:  # Skip binary or unreadable files
+                if not file_content:
                     continue
-
                 ext = full_path.suffix[1:] if full_path.suffix else 'txt'
                 output_content.append(f"\n{full_path.name}")
                 output_content.append(f"```{ext}")
                 output_content.append(file_content)
                 output_content.append("```\n")
 
-                self.progress_bar["value"] += progress_step
-                self.update_idletasks()
+                self.progress_value += progress_step
+                self.progress_bar.setValue(int(min(100, self.progress_value)))
+                QtWidgets.QApplication.processEvents()
 
             elif full_path.is_dir():
-                self.process_directory(full_path, output_content, total_files, progress_step)
+                self.process_directory(full_path, output_content, progress_step)
 
-        # Get the desktop path
-        desktop_path = Path.home() / "Desktop"  # Works on Windows, macOS, and Linux
-
-
-        # Show save file dialog
+        # Specify the desktop as the default save directory
+        desktop_path = Path.home() / "Desktop"
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         initial_filename = f"concatenated_{timestamp}.md"
-        output_filename = filedialog.asksaveasfilename(
-            defaultextension=".md",
-            initialfile=initial_filename,
-            initialdir=desktop_path,
-            filetypes=[("Markdown files", "*.md"), ("All files", "*.*")],
-            title="Save Concatenated File"
-        )
+        default_path = str(desktop_path / initial_filename)
 
-        if not output_filename:  # User cancelled
-            self.progress_bar["value"] = 0.0
+        # Call getSaveFileName without the options parameter.
+        file_tuple = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Save Concatenated File",
+            default_path,
+            "Markdown Files (*.md);;All Files (*)",
+        )
+        output_filename = file_tuple[0]
+        if not output_filename:
+            self.progress_bar.setValue(0)
             return
 
         try:
             with open(output_filename, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(output_content))
-            messagebox.showinfo("Success", f"File generated: {output_filename}")
+            QtWidgets.QMessageBox.information(
+                self, "Success", f"File generated: {output_filename}"
+            )
             logging.info(f"Successfully generated file: {output_filename}")
         except Exception as e:
             logging.error(f"Error writing output file {output_filename}: {e}", exc_info=True)
-            messagebox.showerror("Error", f"Could not write output file:\n{e}")
+            QtWidgets.QMessageBox.critical(
+                self, "Error", f"Could not write output file:\n{e}"
+            )
 
-        # Reset progress bar
-        self.progress_bar["value"] = 0.0
+        self.progress_bar.setValue(0)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="File Concatenator Application")
-    parser.add_argument(
-        "--dir",
-        type=Path,
-        default=Path.cwd(),
-        help="The working directory to use."
+    app = QtWidgets.QApplication(sys.argv)
+    # Ask the user to choose a working directory. If no selection, default to current working directory.
+    selected_dir = QtWidgets.QFileDialog.getExistingDirectory(
+        None,
+        "Select Directory",
+        str(Path.cwd())
     )
-    args = parser.parse_args()
+    if selected_dir:
+        working_dir = Path(selected_dir)
+    else:
+        working_dir = Path.cwd()
 
-    # Validate if directory exists
-    if not args.dir.exists() or not args.dir.is_dir():
-        print(f"Error: Directory '{args.dir}' does not exist or is not a directory")
-        exit(1)
-
-    app = FileConcatenator(working_dir=args.dir)
-    app.mainloop()
+    window = FileConcatenator(working_dir=working_dir)
+    window.show()
+    sys.exit(app.exec())
