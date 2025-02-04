@@ -18,13 +18,13 @@ logging.basicConfig(
 
 class FileConcatenator(tk.Tk):
     """
-    A tkinter-based graphical application to select and concatenate multiple files 
-    into a single markdown file. Provides language-based filtering, search functionality, 
+    A tkinter-based graphical application to select and concatenate multiple files
+    into a single markdown file. Provides language-based filtering, search functionality,
     and a preview of progress via a progress bar.
     """
     def __init__(self, working_dir: Path = None) -> None:
         super().__init__()
-        
+
         self.working_dir = working_dir or Path.cwd()
         self.title("SOTA File Concatenator")
         self.geometry("700x500")
@@ -164,7 +164,7 @@ class FileConcatenator(tk.Tk):
         if directories:
             dir_label = ttk.Label(self.scrollable_frame, text="Directories:", font=('TkDefaultFont', 10, 'bold'))
             dir_label.pack(anchor="w", padx=5, pady=(5, 2))
-            
+
             for directory in directories:
                 var = tk.BooleanVar()
                 cb = ttk.Checkbutton(self.scrollable_frame, text=directory.name, variable=var)
@@ -219,7 +219,7 @@ class FileConcatenator(tk.Tk):
 
     def process_directory(self, dir_path: Path, output_content: List[str], total_files: int, progress_step: float) -> None:
         """
-        Recursively process a directory by appending the content of files 
+        Recursively process a directory by appending the content of files
         (matching the selected language filter) to output_content.
 
         :param dir_path: Path object representing the directory to process.
@@ -257,7 +257,7 @@ class FileConcatenator(tk.Tk):
 
     def generate_file(self) -> None:
         """
-        Generate a markdown file containing the concatenated contents of 
+        Generate a markdown file containing the concatenated contents of
         selected files and directories. Displays a progress bar during the process.
         """
         output_content: List[str] = []
@@ -296,7 +296,7 @@ class FileConcatenator(tk.Tk):
                 file_content = self.get_file_content(full_path)
                 if not file_content:  # Skip binary or unreadable files
                     continue
-                    
+
                 ext = full_path.suffix[1:] if full_path.suffix else 'txt'
                 output_content.append(f"\n{full_path.name}")
                 output_content.append(f"```{ext}")
@@ -309,12 +309,17 @@ class FileConcatenator(tk.Tk):
             elif full_path.is_dir():
                 self.process_directory(full_path, output_content, total_files, progress_step)
 
+        # Get the desktop path
+        desktop_path = Path.home() / "Desktop"  # Works on Windows, macOS, and Linux
+
+
         # Show save file dialog
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         initial_filename = f"concatenated_{timestamp}.md"
         output_filename = filedialog.asksaveasfilename(
             defaultextension=".md",
             initialfile=initial_filename,
+            initialdir=desktop_path,
             filetypes=[("Markdown files", "*.md"), ("All files", "*.*")],
             title="Save Concatenated File"
         )
@@ -339,17 +344,17 @@ class FileConcatenator(tk.Tk):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="File Concatenator Application")
     parser.add_argument(
-        "--dir", 
-        type=Path, 
+        "--dir",
+        type=Path,
         default=Path.cwd(),
         help="The working directory to use."
     )
     args = parser.parse_args()
-    
+
     # Validate if directory exists
     if not args.dir.exists() or not args.dir.is_dir():
         print(f"Error: Directory '{args.dir}' does not exist or is not a directory")
         exit(1)
-        
+
     app = FileConcatenator(working_dir=args.dir)
     app.mainloop()
