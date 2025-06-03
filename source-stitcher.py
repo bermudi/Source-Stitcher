@@ -5,7 +5,7 @@ from pathlib import Path
 from datetime import datetime
 import pathspec
 import stat
-import traceback # For detailed error logging in worker
+import traceback
 
 # PyQt6 imports
 from PyQt6 import QtCore, QtWidgets, QtGui
@@ -99,39 +99,13 @@ def matches_file_type(filepath: Path, selected_extensions: list[str], all_langua
     if "*" in selected_extensions:
         return True
     
-    # Handle special "Other Text Files" category
-    if "*other*" in selected_extensions:
-        # Check if file doesn't match any other category but appears to be text
-        file_ext = filepath.suffix.lower()
-        matched_by_other_category = False
-        
-        for lang, exts in all_language_extensions.items():
-            if lang != "Other Text Files":
-                # Handle special cases
-                if "*other*" in exts:
-                    continue
-                # Check for filename matches (like requirements.txt, package.json)
-                filename_matches = [ext for ext in exts if not ext.startswith('.')]
-                name_matches = [ext for ext in filename_matches if filepath.name.lower() == ext.lower()]
-                if name_matches:
-                    matched_by_other_category = True
-                    break
-                # Check for extension matches
-                if file_ext in [ext.lower() for ext in exts if ext.startswith('.')]:
-                    matched_by_other_category = True
-                    break
-        
-        # If not matched by other categories, check if it's likely text
-        if not matched_by_other_category:
-            return is_likely_text_file(filepath)
-        
-        return False
-    
-    # Standard extension matching and filename matching
     file_ext = filepath.suffix.lower()
     filename = filepath.name.lower()
     
+    # First check standard extension and filename matching for all selected categories except "*other*"
     for ext in selected_extensions:
+        if ext == "*other*":
+            continue  # Handle this separately below
         if ext.startswith('.'):
             # Extension match
             if file_ext == ext.lower():
@@ -140,6 +114,31 @@ def matches_file_type(filepath: Path, selected_extensions: list[str], all_langua
             # Filename match (for files like requirements.txt, package.json)
             if filename == ext.lower():
                 return True
+    
+    # Handle special "Other Text Files" category
+    if "*other*" in selected_extensions:
+        # Check if file doesn't match any other category but appears to be text
+        matched_by_other_category = False
+        
+        for lang, exts in all_language_extensions.items():
+            if lang == "Other Text Files":
+                continue
+            
+            # Check for filename matches
+            filename_matches = [ext for ext in exts if not ext.startswith('.')]
+            name_matches = [ext for ext in filename_matches if filename == ext.lower()]
+            if name_matches:
+                matched_by_other_category = True
+                break
+            
+            # Check for extension matches
+            if file_ext in [ext.lower() for ext in exts if ext.startswith('.')]:
+                matched_by_other_category = True
+                break
+        
+        # If not matched by other categories, check if it's likely text
+        if not matched_by_other_category:
+            return is_likely_text_file(filepath)
     
     return False
 
@@ -569,14 +568,14 @@ class FileConcatenator(QtWidgets.QMainWindow):
 
         # Language selection list
         self.language_list_widget = QtWidgets.QListWidget()
-        self.language_list_widget.setMaximumHeight(140)  # Slightly more height for new categories
+        self.language_list_widget.setMaximumHeight(140)
         self.language_list_widget.setAlternatingRowColors(True)
         
         # Populate language list with checkboxes
         for language_name in self.language_extensions.keys():
             item = QtWidgets.QListWidgetItem(language_name)
             item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(QtCore.Qt.CheckState.Checked)  # Start with all selected
+            item.setCheckState(QtCore.Qt.CheckState.Checked)
             item.setData(self.LANGUAGE_ROLE, language_name)
             self.language_list_widget.addItem(item)
         
@@ -911,7 +910,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
             selected_paths=selected_paths,
             base_dir=self.working_dir,
             allowed_extensions=selected_extensions,
-            all_language_extensions=self.language_extensions,  # Pass the full dict
+            all_language_extensions=self.language_extensions,
             base_ignore_spec=self.ignore_spec,
             script_path=script_path
         )
@@ -991,21 +990,61 @@ class FileConcatenator(QtWidgets.QMainWindow):
 
     def save_generated_file(self, content: str):
         """Handles the save file dialog and writing the output."""
-        desktop_path = Path.home() / "Desktop"
-        if not desktop_path.exists(): 
+        # Try to find Desktop, with multiple fallback strategies
+        desktop_path = None
+        possible_desktop_paths = [
+            Path.home() / "Desktop",
+            Path.home() / "desktop",  # Linux sometimes uses lowercase
+            Path.home() / "Bureau",   # French systems
+            Path.home() / "Escritorio",  # Spanish systems
+            Path.home() / "Área de Trabalho",  # Portuguese systems
+        ]
+        
+        for path in possible_desktop_paths:
+            if path.exists() and path.is_dir():
+                desktop_path = path
+                break
+        
+        # Fallback to home directory if no desktop found
+        if not desktop_path:
             desktop_path = Path.home()
+            logging.info("Desktop directory not found, using home directory as default")
+        
+        # Generate filename based on the current working directory name
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        selected_langs = self.get_selected_language_names()
-        lang_suffix = "_".join(selected_langs[:3])  # Limit to first 3 to avoid too long filenames
-        if len(selected_langs) > 3:
-            lang_suffix += "_etc"
+        # Use the actual directory name being processed
+        dir_name = self.working_dir.name if self.working_dir.name else "files"
         
-        initial_filename = f"concatenated_{self.working_dir.name}_{lang_suffix}_{timestamp}.md"
-        default_path = str(desktop_path / initial_filename)
-
+        # Include selected language types in filename (abbreviated)
+        selected_langs = self.get_selected_language_names()
+        if len(selected_langs) == len(self.language_extensions):
+            lang_suffix = "all_types"
+        elif len(selected_langs) <= 2:
+            lang_suffix = "_".join(selected_langs)
+        elif len(selected_langs) <= 4:
+            lang_suffix = "_".join(selected_langs[:3]) + "_etc"
+        else:
+            lang_suffix = "mixed_types"
+        
+        # Clean up language suffix for filename (remove problematic characters)
+        lang_suffix = lang_suffix.replace("/", "_").replace("&", "and").replace(" ", "_")
+        
+        initial_filename = f"concatenated_{dir_name}_{lang_suffix}_{timestamp}.md"
+        
+        # Ensure filename is not too long (some filesystems have limits)
+        if len(initial_filename) > 100:
+            initial_filename = f"concatenated_{dir_name}_{timestamp}.md"
+        
+        default_path = desktop_path / initial_filename
+        
+        logging.info(f"Save dialog defaulting to: {default_path}")
+        
         file_tuple = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Save Concatenated File", default_path, "Markdown Files (*.md);;All Files (*)"
+            self, 
+            "Save Concatenated File", 
+            str(default_path),  # This sets both directory and filename
+            "Markdown Files (*.md);;Text Files (*.txt);;All Files (*)"
         )
         output_filename = file_tuple[0]
 
@@ -1016,27 +1055,58 @@ class FileConcatenator(QtWidgets.QMainWindow):
 
         try:
             output_path = Path(output_filename)
+            
+            # Prevent overwriting the running script
             if '__file__' in globals() and output_path.resolve() == Path(__file__).resolve():
-                 QtWidgets.QMessageBox.critical(self,"Error","Cannot overwrite the running script file!")
-                 return
+                QtWidgets.QMessageBox.critical(self, "Error", "Cannot overwrite the running script file!")
+                return
 
+            # Create the output content with better header information
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(f"# Concatenated Files from: {self.working_dir}\n")
                 f.write(f"# Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"# Selected file types: {', '.join(self.get_selected_language_names())}\n")
-                f.write("--- START OF CONTENT ---\n")
+                f.write(f"# Total directory size: {self.working_dir.name}\n")
+                
+                # Show selected file types in a readable format
+                selected_types = self.get_selected_language_names()
+                if len(selected_types) == len(self.language_extensions):
+                    f.write("# Selected file types: All types\n")
+                else:
+                    f.write(f"# Selected file types: {', '.join(selected_types)}\n")
+                
+                # Add some statistics if we can calculate them quickly
+                try:
+                    file_count = len([item for item in content.split('\n--- File:') if item.strip()])
+                    f.write(f"# Number of files included: {file_count}\n")
+                except:
+                    pass
+                
+                f.write("\n" + "="*60 + "\n")
+                f.write("START OF CONCATENATED CONTENT\n")
+                f.write("="*60 + "\n\n")
                 f.write(content)
-                f.write("\n--- END OF CONTENT ---\n")
-            QtWidgets.QMessageBox.information(self, "Success", f"File generated successfully:\n{output_filename}")
+                f.write("\n" + "="*60 + "\n")
+                f.write("END OF CONCATENATED CONTENT\n")
+                f.write("="*60 + "\n")
+            
+            # Success message with file location
+            QtWidgets.QMessageBox.information(
+                self, 
+                "Success", 
+                f"File generated successfully!\n\nSaved to:\n{output_filename}\n\nFile size: {output_path.stat().st_size:,} bytes"
+            )
             logging.info(f"Successfully generated file: {output_filename}")
+            
         except Exception as e:
             logging.error(f"Error writing output file {output_filename}: {e}", exc_info=True)
             QtWidgets.QMessageBox.critical(
                 self, "Error", f"Could not write output file:\n{output_filename}\n\n{e}"
             )
         finally:
-             self.progress_bar.setValue(0)
-             self.progress_bar.setFormat("%p%")
+            # Reset progress bar
+            self.progress_bar.setValue(0)
+            self.progress_bar.setFormat("%p%")
+
 
     def closeEvent(self, event: QtGui.QCloseEvent):
         """Handle window close event, ensuring worker thread is stopped."""
@@ -1058,7 +1128,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
 if __name__ == "__main__":
     QtCore.QCoreApplication.setApplicationName("SOTA Concatenator")
     QtCore.QCoreApplication.setOrganizationName("YourOrg")
-    QtCore.QCoreApplication.setApplicationVersion("1.4-comprehensive")
+    QtCore.QCoreApplication.setApplicationVersion("1.4-fixed")
 
     app = QtWidgets.QApplication(sys.argv)
 
