@@ -36,6 +36,113 @@ def load_ignore_patterns(directory: Path) -> pathspec.PathSpec | None:
             return None
     return None
 
+# --- Shared utility functions ---
+def is_binary_file(filepath: Path) -> bool:
+    """Check if a file is likely binary by looking for null bytes."""
+    CHUNK_SIZE = 1024
+    try:
+        with filepath.open('rb') as f:
+            chunk = f.read(CHUNK_SIZE)
+        return b'\0' in chunk
+    except OSError as e:
+        logging.warning(f"Could not read start of file {filepath} to check if binary: {e}")
+        return True
+    except Exception as e:
+        logging.error(f"Unexpected error checking if file is binary {filepath}: {e}", exc_info=True)
+        return True
+
+def is_likely_text_file(filepath: Path) -> bool:
+    """
+    Detect if file is likely text based on name patterns and content.
+    """
+    # Known text filenames without extensions
+    text_filenames = {
+        'readme', 'license', 'licence', 'changelog', 'changes', 'authors', 
+        'contributors', 'copying', 'install', 'news', 'todo', 'version', 
+        'dockerfile', 'makefile', 'rakefile', 'gemfile', 'pipfile', 'procfile', 
+        'vagrantfile', 'jenkinsfile', 'cname', 'notice', 'manifest', 'copyright'
+    }
+    
+    # Check if it's a known text filename (case insensitive)
+    if filepath.name.lower() in text_filenames:
+        return not is_binary_file(filepath)
+    
+    # Dotfiles are often config files (but skip .git, .DS_Store, etc.)
+    if filepath.name.startswith('.') and len(filepath.name) > 1:
+        # Skip known binary or special dotfiles
+        skip_dotfiles = {'.git', '.ds_store', '.pyc', '.pyo', '.pyd', '.so', '.dylib', '.dll'}
+        if filepath.name.lower() not in skip_dotfiles:
+            return not is_binary_file(filepath)
+    
+    # Files with no extension that aren't binary
+    if not filepath.suffix:
+        return not is_binary_file(filepath)
+    
+    # Files with unusual extensions that might be text
+    possible_text_extensions = {
+        '.ini', '.cfg', '.conf', '.config', '.properties', '.env', '.envrc',
+        '.ignore', '.keep', '.gitkeep', '.npmignore', '.dockerignore',
+        '.editorconfig', '.flake8', '.pylintrc', '.prettierrc', '.eslintrc',
+        '.stylelintrc', '.babelrc', '.npmrc', '.yarnrc', '.nvmrc', '.ruby-version',
+        '.python-version', '.node-version', '.terraform', '.tf', '.tfvars',
+        '.ansible', '.playbook', '.vault', '.j2', '.jinja', '.jinja2',
+        '.template', '.tmpl', '.tpl', '.mustache', '.hbs', '.handlebars'
+    }
+    
+    if filepath.suffix.lower() in possible_text_extensions:
+        return not is_binary_file(filepath)
+    
+    return False
+
+def matches_file_type(filepath: Path, selected_extensions: list[str], all_language_extensions: dict) -> bool:
+    """Check if file matches any selected file type categories."""
+    if "*" in selected_extensions:
+        return True
+    
+    # Handle special "Other Text Files" category
+    if "*other*" in selected_extensions:
+        # Check if file doesn't match any other category but appears to be text
+        file_ext = filepath.suffix.lower()
+        matched_by_other_category = False
+        
+        for lang, exts in all_language_extensions.items():
+            if lang != "Other Text Files":
+                # Handle special cases
+                if "*other*" in exts:
+                    continue
+                # Check for filename matches (like requirements.txt, package.json)
+                filename_matches = [ext for ext in exts if not ext.startswith('.')]
+                name_matches = [ext for ext in filename_matches if filepath.name.lower() == ext.lower()]
+                if name_matches:
+                    matched_by_other_category = True
+                    break
+                # Check for extension matches
+                if file_ext in [ext.lower() for ext in exts if ext.startswith('.')]:
+                    matched_by_other_category = True
+                    break
+        
+        # If not matched by other categories, check if it's likely text
+        if not matched_by_other_category:
+            return is_likely_text_file(filepath)
+        
+        return False
+    
+    # Standard extension matching and filename matching
+    file_ext = filepath.suffix.lower()
+    filename = filepath.name.lower()
+    
+    for ext in selected_extensions:
+        if ext.startswith('.'):
+            # Extension match
+            if file_ext == ext.lower():
+                return True
+        else:
+            # Filename match (for files like requirements.txt, package.json)
+            if filename == ext.lower():
+                return True
+    
+    return False
+
 # --- Worker Class for Background Processing ---
 class GeneratorWorker(QtCore.QObject):
     """
@@ -46,11 +153,12 @@ class GeneratorWorker(QtCore.QObject):
     status_updated = QtCore.pyqtSignal(str)
     finished = QtCore.pyqtSignal(str, str)
 
-    def __init__(self, selected_paths: list[Path], base_dir: Path, allowed_extensions: list[str], base_ignore_spec: pathspec.PathSpec | None, script_path: Path | None):
+    def __init__(self, selected_paths: list[Path], base_dir: Path, allowed_extensions: list[str], all_language_extensions: dict, base_ignore_spec: pathspec.PathSpec | None, script_path: Path | None):
         super().__init__()
         self.selected_paths = selected_paths
         self.base_dir = base_dir
-        self.allowed_extensions = allowed_extensions  # Now takes a list of extensions directly
+        self.allowed_extensions = allowed_extensions
+        self.all_language_extensions = all_language_extensions
         self.base_ignore_spec = base_ignore_spec
         self.script_path = script_path
         self._is_cancelled = False
@@ -60,31 +168,17 @@ class GeneratorWorker(QtCore.QObject):
         self._is_cancelled = True
         logging.info("Cancellation requested for worker.")
 
-    def is_binary(self, filepath: Path) -> bool:
-        """Check if a file is likely binary by looking for null bytes."""
-        CHUNK_SIZE = 1024
-        try:
-            with filepath.open('rb') as f:
-                chunk = f.read(CHUNK_SIZE)
-            return b'\0' in chunk
-        except OSError as e:
-            logging.warning(f"Could not read start of file {filepath} to check if binary: {e}")
-            return True
-        except Exception as e:
-            logging.error(f"Unexpected error checking if file is binary {filepath}: {e}", exc_info=True)
-            return True
-
     def get_file_content(self, filepath: Path) -> str | None:
         """
         Safely read the content of a non-binary text file using UTF-8 encoding.
         Returns None if the file is binary, cannot be read, or causes decoding errors.
         """
-        if self.is_binary(filepath):
+        if is_binary_file(filepath):
             logging.warning(f"Skipping binary file detected during read: {filepath.name}")
             return None
         try:
             content = filepath.read_text(encoding='utf-8', errors='strict')
-            if not content:
+            if not content.strip():  # Skip empty or whitespace-only files
                 logging.info(f"Skipping empty file: {filepath.name}")
                 return None
             return content
@@ -152,12 +246,10 @@ class GeneratorWorker(QtCore.QObject):
                 if self.script_path and count_path.resolve() == self.script_path:
                     continue
 
-                # Check if file extension matches any of the allowed extensions
-                if "*" not in self.allowed_extensions and count_path.suffix.lower() not in self.allowed_extensions:
-                    continue
-
-                if not self.is_binary(count_path):
-                    count += 1
+                # Use the new matching logic
+                if matches_file_type(count_path, self.allowed_extensions, self.all_language_extensions):
+                    if not is_binary_file(count_path):
+                        count += 1
         return count
 
     def process_directory_recursive(self, dir_path: Path, current_dir_ignore_spec: pathspec.PathSpec | None, output_content: list, files_processed_counter: list) -> None:
@@ -215,8 +307,8 @@ class GeneratorWorker(QtCore.QObject):
                 if self.script_path and full_path.resolve() == self.script_path:
                     continue
 
-                # Check if file extension matches any of the allowed extensions
-                if "*" not in self.allowed_extensions and full_path.suffix.lower() not in self.allowed_extensions:
+                # Use the new matching logic
+                if not matches_file_type(full_path, self.allowed_extensions, self.all_language_extensions):
                     continue
 
                 file_content = self.get_file_content(full_path)
@@ -261,8 +353,8 @@ class GeneratorWorker(QtCore.QObject):
                             continue
                         if self.script_path and path.resolve() == self.script_path:
                             continue
-                        if not path.name.startswith('.') and not self.is_binary(path):
-                            if "*" in self.allowed_extensions or path.suffix.lower() in self.allowed_extensions:
+                        if not path.name.startswith('.') and not is_binary_file(path):
+                            if matches_file_type(path, self.allowed_extensions, self.all_language_extensions):
                                 total_files += 1
                     elif is_regular_dir:
                         if self.base_ignore_spec and self.base_ignore_spec.match_file(rel_path_str + '/'):
@@ -308,7 +400,7 @@ class GeneratorWorker(QtCore.QObject):
                             continue
                         if self.script_path and path.resolve() == self.script_path:
                             continue
-                        if "*" not in self.allowed_extensions and path.suffix.lower() not in self.allowed_extensions:
+                        if not matches_file_type(path, self.allowed_extensions, self.all_language_extensions):
                              continue
 
                         file_content = self.get_file_content(path)
@@ -377,7 +469,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.initial_base_dir = (working_dir or Path.cwd()).resolve()
         self.working_dir = self.initial_base_dir
         self.setWindowTitle(f"SOTA Concatenator - [{self.working_dir.name}]")
-        self.resize(700, 650)  # Increased height to accommodate language selection
+        self.resize(700, 650)
 
         self.ignore_spec = load_ignore_patterns(self.working_dir)
         self.icon_provider = QtWidgets.QFileIconProvider()
@@ -386,22 +478,36 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.worker = None
         self.is_generating = False
 
+        # Updated comprehensive language extensions
         self.language_extensions = {
-            "Python": [".py", ".pyw", ".pyx"], 
-            "JavaScript": [".js", ".jsx", ".ts", ".tsx"],
-            "Java": [".java"], 
-            "C/C++": [".c", ".cpp", ".h", ".hpp"], 
-            "Ruby": [".rb", ".rake"],
-            "PHP": [".php"], 
-            "Go": [".go"], 
-            "Rust": [".rs"], 
-            "Swift": [".swift"], 
-            "HTML/CSS": [".html", ".htm", ".css"],
-            "Markdown": [".md", ".markdown"], 
-            "Text": [".txt"], 
-            "JSON/YAML": [".json", ".yaml", ".yml"],
-            "XML": [".xml"], 
-            "Shell": [".sh", ".bash", ".zsh"],
+            "Python": [".py", ".pyw", ".pyx", ".pyi", "requirements.txt", "setup.py", "setup.cfg", "pyproject.toml", "pipfile"],
+            "JavaScript/TypeScript": [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", "package.json", "package-lock.json", "yarn.lock"],
+            "Web Frontend": [".html", ".htm", ".css", ".scss", ".sass", ".less", ".vue", ".svelte", ".astro"],
+            "Java/Kotlin": [".java", ".kt", ".kts", ".gradle", "pom.xml", "build.gradle", "gradle.properties"],
+            "C/C++": [".c", ".cpp", ".cxx", ".cc", ".h", ".hpp", ".hxx", ".cmake", "makefile", "cmakelists.txt"],
+            "C#/.NET": [".cs", ".fs", ".vb", ".csproj", ".fsproj", ".vbproj", ".sln"],
+            "Ruby": [".rb", ".rake", ".gemspec", ".ru", "gemfile", "gemfile.lock", "rakefile"],
+            "PHP": [".php", ".phtml", ".php3", ".php4", ".php5", "composer.json", "composer.lock"],
+            "Go": [".go", ".mod", ".sum", "go.mod", "go.sum"],
+            "Rust": [".rs", "cargo.toml", "cargo.lock"],
+            "Swift/Objective-C": [".swift", ".m", ".mm", ".h", "package.swift", "podfile", "podfile.lock"],
+            "Shell Scripts": [".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd"],
+            "Config & Data": [
+                ".json", ".yaml", ".yml", ".toml", ".xml", ".ini", ".cfg", ".conf", 
+                ".config", ".properties", ".plist", ".env", ".envrc"
+            ],
+            "Documentation": [".md", ".markdown", ".rst", ".txt", ".adoc", ".org", "readme", "changelog", "license", "authors"],
+            "DevOps & CI": [
+                ".dockerfile", "dockerfile", ".dockerignore", "docker-compose.yml", "docker-compose.yaml",
+                ".travis.yml", ".gitlab-ci.yml", ".github", ".circleci", ".appveyor.yml", 
+                ".azure-pipelines.yml", "jenkinsfile", "vagrantfile", ".terraform", ".tf", ".tfvars"
+            ],
+            "Version Control": [".gitignore", ".gitattributes", ".gitmodules", ".gitkeep"],
+            "Build & Package": [
+                "makefile", ".ninja", ".bazel", ".buck", "build.gradle", "gradle.properties",
+                "composer.json", "cargo.toml", "pipfile", "gemfile", "podfile", "package.json"
+            ],
+            "Other Text Files": ["*other*"]  # Special category for unmatched text files
         }
 
         self.init_ui()
@@ -447,14 +553,23 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.btn_select_all_languages.clicked.connect(self.select_all_languages)
         self.btn_deselect_all_languages = QtWidgets.QPushButton("None")
         self.btn_deselect_all_languages.clicked.connect(self.deselect_all_languages)
+        
+        # Add common presets
+        self.btn_code_only = QtWidgets.QPushButton("Code Only")
+        self.btn_code_only.clicked.connect(self.select_code_only)
+        self.btn_docs_config = QtWidgets.QPushButton("Docs & Config")
+        self.btn_docs_config.clicked.connect(self.select_docs_config)
+        
         lang_buttons_layout.addWidget(self.btn_select_all_languages)
         lang_buttons_layout.addWidget(self.btn_deselect_all_languages)
+        lang_buttons_layout.addWidget(self.btn_code_only)
+        lang_buttons_layout.addWidget(self.btn_docs_config)
         lang_buttons_layout.addStretch()
         language_layout.addLayout(lang_buttons_layout)
 
         # Language selection list
         self.language_list_widget = QtWidgets.QListWidget()
-        self.language_list_widget.setMaximumHeight(120)  # Limit height
+        self.language_list_widget.setMaximumHeight(140)  # Slightly more height for new categories
         self.language_list_widget.setAlternatingRowColors(True)
         
         # Populate language list with checkboxes
@@ -549,6 +664,36 @@ class FileConcatenator(QtWidgets.QMainWindow):
             item = self.language_list_widget.item(i)
             item.setCheckState(QtCore.Qt.CheckState.Unchecked)
 
+    def select_code_only(self):
+        """Select only programming language categories."""
+        if self.is_generating: return
+        code_categories = {
+            "Python", "JavaScript/TypeScript", "Web Frontend", "Java/Kotlin", 
+            "C/C++", "C#/.NET", "Ruby", "PHP", "Go", "Rust", "Swift/Objective-C", "Shell Scripts"
+        }
+        for i in range(self.language_list_widget.count()):
+            item = self.language_list_widget.item(i)
+            language_name = item.data(self.LANGUAGE_ROLE)
+            if language_name in code_categories:
+                item.setCheckState(QtCore.Qt.CheckState.Checked)
+            else:
+                item.setCheckState(QtCore.Qt.CheckState.Unchecked)
+
+    def select_docs_config(self):
+        """Select documentation and configuration categories."""
+        if self.is_generating: return
+        docs_config_categories = {
+            "Documentation", "Config & Data", "DevOps & CI", "Version Control", 
+            "Build & Package", "Other Text Files"
+        }
+        for i in range(self.language_list_widget.count()):
+            item = self.language_list_widget.item(i)
+            language_name = item.data(self.LANGUAGE_ROLE)
+            if language_name in docs_config_categories:
+                item.setCheckState(QtCore.Qt.CheckState.Checked)
+            else:
+                item.setCheckState(QtCore.Qt.CheckState.Unchecked)
+
     def update_ui_state(self) -> None:
         """Updates UI elements based on the current state."""
         try:
@@ -569,26 +714,14 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.btn_deselect_all.setEnabled(enabled)
         self.btn_select_all_languages.setEnabled(enabled)
         self.btn_deselect_all_languages.setEnabled(enabled)
+        self.btn_code_only.setEnabled(enabled)
+        self.btn_docs_config.setEnabled(enabled)
         self.file_list_widget.setEnabled(enabled)
         self.language_list_widget.setEnabled(enabled)
         self.search_entry.setEnabled(enabled)
         is_root = self.working_dir.parent == self.working_dir
         self.btn_up.setEnabled(enabled and not is_root)
         self.btn_cancel.setEnabled(not enabled)
-
-    def is_binary(self, filepath: Path) -> bool:
-        """Check if a file is likely binary by looking for null bytes."""
-        CHUNK_SIZE = 1024
-        try:
-            with filepath.open('rb') as f:
-                chunk = f.read(CHUNK_SIZE)
-            return b'\0' in chunk
-        except OSError as e:
-            logging.warning(f"Could not read start of file {filepath} to check if binary: {e}")
-            return True
-        except Exception as e:
-            logging.error(f"Unexpected error checking if file is binary {filepath}: {e}", exc_info=True)
-            return True
 
     def populate_file_list(self) -> None:
         """Populate the list widget with files and directories."""
@@ -633,12 +766,10 @@ class FileConcatenator(QtWidgets.QMainWindow):
                 if entry.is_dir():
                     directories.append(item_path)
                 elif entry.is_file():
-                    if self.is_binary(item_path): continue
-                    # Check if file matches any selected extensions
-                    if selected_extensions and "*" not in selected_extensions:
-                        if item_path.suffix.lower() not in selected_extensions: 
-                            continue
-                    files.append(item_path)
+                    if is_binary_file(item_path): continue
+                    # Use the new matching logic
+                    if selected_extensions and matches_file_type(item_path, selected_extensions, self.language_extensions):
+                        files.append(item_path)
 
         except PermissionError as e:
             logging.error(f"Permission denied accessing directory: {self.working_dir}. {e}")
@@ -695,12 +826,6 @@ class FileConcatenator(QtWidgets.QMainWindow):
                     logging.info(f"Navigated into directory: {self.working_dir}")
                     self.refresh_files()
                     self.search_entry.clear()
-                elif stat.S_ISREG(st.st_mode):
-                     logging.debug(f"Double click on file item: {item.text()}")
-                elif stat.S_ISLNK(st.st_mode):
-                     logging.debug(f"Double click on symlink item: {item.text()}")
-                else:
-                     logging.debug(f"Double click on non-dir/file/link item: {item.text()}")
             except PermissionError:
                  logging.warning(f"Permission denied trying to navigate into {path_data}")
                  QtWidgets.QMessageBox.warning(self, "Access Denied", f"Cannot open directory:\n{path_data.name}\n\nPermission denied.")
@@ -755,7 +880,6 @@ class FileConcatenator(QtWidgets.QMainWindow):
             logging.warning("Generation process already running.")
             return
 
-        # Check if any language types are selected
         selected_extensions = self.get_selected_extensions()
         if not selected_extensions:
             QtWidgets.QMessageBox.warning(self, "No File Types", "Please select at least one file type.")
@@ -786,7 +910,8 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.worker = GeneratorWorker(
             selected_paths=selected_paths,
             base_dir=self.working_dir,
-            allowed_extensions=selected_extensions,  # Pass the combined extensions
+            allowed_extensions=selected_extensions,
+            all_language_extensions=self.language_extensions,  # Pass the full dict
             base_ignore_spec=self.ignore_spec,
             script_path=script_path
         )
@@ -871,7 +996,6 @@ class FileConcatenator(QtWidgets.QMainWindow):
             desktop_path = Path.home()
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        # Include selected language types in filename
         selected_langs = self.get_selected_language_names()
         lang_suffix = "_".join(selected_langs[:3])  # Limit to first 3 to avoid too long filenames
         if len(selected_langs) > 3:
@@ -934,7 +1058,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
 if __name__ == "__main__":
     QtCore.QCoreApplication.setApplicationName("SOTA Concatenator")
     QtCore.QCoreApplication.setOrganizationName("YourOrg")
-    QtCore.QCoreApplication.setApplicationVersion("1.3-multitype")
+    QtCore.QCoreApplication.setApplicationVersion("1.4-comprehensive")
 
     app = QtWidgets.QApplication(sys.argv)
 
