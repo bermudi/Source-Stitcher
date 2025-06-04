@@ -1030,7 +1030,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         # Clean up language suffix for filename (remove problematic characters)
         lang_suffix = lang_suffix.replace("/", "_").replace("&", "and").replace(" ", "_")
         
-        initial_filename = f"concatenated_{dir_name}_{lang_suffix}_{timestamp}.md"
+        initial_filename = f"{dir_name}_{lang_suffix}_{timestamp}.md"
         
         # Ensure filename is not too long (some filesystems have limits)
         if len(initial_filename) > 100:
