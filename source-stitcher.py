@@ -94,52 +94,37 @@ def is_likely_text_file(filepath: Path) -> bool:
     
     return False
 
-def matches_file_type(filepath: Path, selected_extensions: list[str], all_language_extensions: dict) -> bool:
-    """Check if file matches any selected file type categories."""
-    if "*" in selected_extensions:
-        return True
-    
+def build_filter_sets(ext_dict: dict[str, list[str]]) -> tuple[set[str], set[str]]:
+    """Compiles all known extensions and filenames into sets for quick lookup."""
+    by_ext, by_name = set(), set()
+    for exts in ext_dict.values():
+        for e in exts:
+            (by_ext if e.startswith('.') else by_name).add(e.lower())
+    return by_ext, by_name
+
+def matches_file_type(
+    filepath: Path,
+    selected_exts: set[str],
+    selected_names: set[str],
+    all_exts: set[str],
+    all_names: set[str],
+    handle_other: bool
+) -> bool:
+    """Check if a file path matches the compiled filter sets."""
     file_ext = filepath.suffix.lower()
-    filename = filepath.name.lower()
-    
-    # First check standard extension and filename matching for all selected categories except "*other*"
-    for ext in selected_extensions:
-        if ext == "*other*":
-            continue  # Handle this separately below
-        if ext.startswith('.'):
-            # Extension match
-            if file_ext == ext.lower():
-                return True
-        else:
-            # Filename match (for files like requirements.txt, package.json)
-            if filename == ext.lower():
-                return True
-    
-    # Handle special "Other Text Files" category
-    if "*other*" in selected_extensions:
-        # Check if file doesn't match any other category but appears to be text
-        matched_by_other_category = False
-        
-        for lang, exts in all_language_extensions.items():
-            if lang == "Other Text Files":
-                continue
-            
-            # Check for filename matches
-            filename_matches = [ext for ext in exts if not ext.startswith('.')]
-            name_matches = [ext for ext in filename_matches if filename == ext.lower()]
-            if name_matches:
-                matched_by_other_category = True
-                break
-            
-            # Check for extension matches
-            if file_ext in [ext.lower() for ext in exts if ext.startswith('.')]:
-                matched_by_other_category = True
-                break
-        
-        # If not matched by other categories, check if it's likely text
-        if not matched_by_other_category:
+    file_name = filepath.name.lower()
+
+    if file_name in selected_names:
+        return True
+    if file_ext in selected_exts:
+        return True
+
+    # Handle "Other Text Files" logic
+    if handle_other:
+        # Check if the file does NOT match any of the known file types
+        if file_name not in all_names and file_ext not in all_exts:
             return is_likely_text_file(filepath)
-    
+
     return False
 
 # --- Worker Class for Background Processing ---
@@ -152,12 +137,26 @@ class GeneratorWorker(QtCore.QObject):
     status_updated = QtCore.pyqtSignal(str)
     finished = QtCore.pyqtSignal(str, str)
 
-    def __init__(self, selected_paths: list[Path], base_dir: Path, allowed_extensions: list[str], all_language_extensions: dict, base_ignore_spec: pathspec.PathSpec | None, script_path: Path | None):
+    def __init__(
+        self,
+        selected_paths: list[Path],
+        base_dir: Path,
+        selected_exts: set[str],
+        selected_names: set[str],
+        all_exts: set[str],
+        all_names: set[str],
+        handle_other: bool,
+        base_ignore_spec: pathspec.PathSpec | None,
+        script_path: Path | None
+    ):
         super().__init__()
         self.selected_paths = selected_paths
         self.base_dir = base_dir
-        self.allowed_extensions = allowed_extensions
-        self.all_language_extensions = all_language_extensions
+        self.selected_exts = selected_exts
+        self.selected_names = selected_names
+        self.all_exts = all_exts
+        self.all_names = all_names
+        self.handle_other = handle_other
         self.base_ignore_spec = base_ignore_spec
         self.script_path = script_path
         self._is_cancelled = False
@@ -197,59 +196,6 @@ class GeneratorWorker(QtCore.QObject):
             logging.error(f"Unexpected error reading file {filepath}: {e}", exc_info=True)
             return None
 
-    def count_files_recursive(self, dir_path: Path, current_dir_ignore_spec: pathspec.PathSpec | None) -> int:
-        """Recursively count processable files in a directory, respecting ignores."""
-        count = 0
-        if self._is_cancelled: return 0
-
-        def walk_error_handler(error: OSError):
-            logging.warning(f"Permission/OS error during counting walk below {dir_path}: {error}")
-
-        for root, dirs, files in os.walk(dir_path, topdown=True, onerror=walk_error_handler, followlinks=False):
-            if self._is_cancelled: return count
-            root_path = Path(root)
-            try:
-                 root_relative_to_base = root_path.relative_to(self.base_dir)
-                 root_relative_to_current = root_path.relative_to(dir_path)
-            except ValueError:
-                 logging.warning(f"Count: Could not make path relative during walk: {root_path}. Skipping subtree.")
-                 dirs[:] = []
-                 continue
-
-            original_dirs = list(dirs)
-            dirs[:] = [d for d in original_dirs if not d.startswith('.') and
-                       (not self.base_ignore_spec or not self.base_ignore_spec.match_file(str(root_relative_to_base / d) + '/')) and
-                       (not current_dir_ignore_spec or not current_dir_ignore_spec.match_file(str(root_relative_to_current / d) + '/'))
-                      ]
-
-            for file_name in files:
-                if self._is_cancelled: return count
-                if file_name.startswith('.'): continue
-
-                count_path = root_path / file_name
-
-                try:
-                    st = count_path.lstat()
-                    if not stat.S_ISREG(st.st_mode): continue
-                except OSError: continue
-
-                try:
-                    rel_base = count_path.relative_to(self.base_dir)
-                    rel_dir = count_path.relative_to(dir_path)
-                except ValueError: continue
-
-                if (self.base_ignore_spec and self.base_ignore_spec.match_file(str(rel_base))) or \
-                   (current_dir_ignore_spec and current_dir_ignore_spec.match_file(str(rel_dir))):
-                    continue
-
-                if self.script_path and count_path.resolve() == self.script_path:
-                    continue
-
-                # Use the new matching logic
-                if matches_file_type(count_path, self.allowed_extensions, self.all_language_extensions):
-                    if not is_binary_file(count_path):
-                        count += 1
-        return count
 
     def process_directory_recursive(self, dir_path: Path, current_dir_ignore_spec: pathspec.PathSpec | None, output_content: list, files_processed_counter: list) -> None:
         """
@@ -307,7 +253,7 @@ class GeneratorWorker(QtCore.QObject):
                     continue
 
                 # Use the new matching logic
-                if not matches_file_type(full_path, self.allowed_extensions, self.all_language_extensions):
+                if not matches_file_type(full_path, self.selected_exts, self.selected_names, self.all_exts, self.all_names, self.handle_other):
                     continue
 
                 file_content = self.get_file_content(full_path)
@@ -326,69 +272,35 @@ class GeneratorWorker(QtCore.QObject):
     @QtCore.pyqtSlot()
     def run(self):
         """Main execution method for the worker thread."""
-        total_files = 0
         output_content = []
         error_message = ""
-        processed_files_count = [0]
-        current_progress = 0
+        files_processed_count = 0
+
+        # Estimate total files for progress bar. This is a rough guess.
+        # A full pre-count is avoided for performance.
+        estimated_total_files = 0
+        for path in self.selected_paths:
+            if path.is_file():
+                estimated_total_files += 1
+            elif path.is_dir():
+                try:
+                    # Quick, non-recursive estimate
+                    estimated_total_files += len([e for e in os.scandir(path) if e.is_file() and not e.name.startswith('.')])
+                except OSError:
+                    pass # Ignore permission errors here
+
+        self.pre_count_finished.emit(estimated_total_files if estimated_total_files > 0 else 100) # Fake max for progress
+        self.status_updated.emit("Processing...")
 
         try:
-            logging.info("Worker started: Counting files...")
-            self.status_updated.emit("Counting files...")
-
             for path in self.selected_paths:
                 if self._is_cancelled: break
+
                 try:
                     st = path.lstat()
                     is_regular_file = stat.S_ISREG(st.st_mode)
                     is_regular_dir = stat.S_ISDIR(st.st_mode)
-                    rel_path_str = ""
-                    try:
-                        rel_path_str = str(path.relative_to(self.base_dir))
-                    except ValueError: pass
 
-                    if is_regular_file:
-                        if self.base_ignore_spec and self.base_ignore_spec.match_file(rel_path_str):
-                            continue
-                        if self.script_path and path.resolve() == self.script_path:
-                            continue
-                        if not path.name.startswith('.') and not is_binary_file(path):
-                            if matches_file_type(path, self.allowed_extensions, self.all_language_extensions):
-                                total_files += 1
-                    elif is_regular_dir:
-                        if self.base_ignore_spec and self.base_ignore_spec.match_file(rel_path_str + '/'):
-                            continue
-                        current_dir_ignore_spec = load_ignore_patterns(path)
-                        total_files += self.count_files_recursive(path, current_dir_ignore_spec)
-
-                except (OSError, ValueError) as e:
-                    logging.warning(f"Cannot access or process {path} during pre-count: {e}")
-                    continue
-
-            if self._is_cancelled:
-                logging.info("Worker cancelled during counting phase.")
-                self.finished.emit("", "Operation cancelled.")
-                return
-
-            logging.info(f"Worker: Counted {total_files} potential files.")
-            self.pre_count_finished.emit(total_files)
-
-            if total_files == 0:
-                 logging.info("Worker: No files to process.")
-                 self.finished.emit("", "")
-                 return
-
-            logging.info("Worker: Starting file processing...")
-            self.status_updated.emit("Processing...")
-
-            total_files_for_progress = max(1, total_files)
-
-            for path in self.selected_paths:
-                if self._is_cancelled: break
-                try:
-                    st = path.lstat()
-                    is_regular_file = stat.S_ISREG(st.st_mode)
-                    is_regular_dir = stat.S_ISDIR(st.st_mode)
                     rel_path_base_str = ""
                     try:
                         rel_path_base_str = str(path.relative_to(self.base_dir))
@@ -399,36 +311,36 @@ class GeneratorWorker(QtCore.QObject):
                             continue
                         if self.script_path and path.resolve() == self.script_path:
                             continue
-                        if not matches_file_type(path, self.allowed_extensions, self.all_language_extensions):
-                             continue
 
-                        file_content = self.get_file_content(path)
-                        if file_content is not None:
-                            ext = path.suffix[1:] if path.suffix else 'txt'
-                            output_content.append(f"\n--- File: {rel_path_base_str} ---")
-                            output_content.append(f"```{ext}")
-                            output_content.append(file_content)
-                            output_content.append("```\n")
-                            processed_files_count[0] += 1
-
-                            new_progress = int((processed_files_count[0] / total_files_for_progress) * 100)
-                            if new_progress > current_progress:
-                                current_progress = new_progress
-                                self.progress_updated.emit(current_progress)
+                        if matches_file_type(path, self.selected_exts, self.selected_names, self.all_exts, self.all_names, self.handle_other):
+                            file_content = self.get_file_content(path)
+                            if file_content is not None:
+                                ext = path.suffix[1:] if path.suffix else 'txt'
+                                output_content.append(f"\n--- File: {rel_path_base_str} ---")
+                                output_content.append(f"```{ext}")
+                                output_content.append(file_content)
+                                output_content.append("```\n")
+                                files_processed_count += 1
+                                if estimated_total_files > 0:
+                                    progress = int((files_processed_count / estimated_total_files) * 100)
+                                    self.progress_updated.emit(min(progress, 99)) # Keep it below 100 until the end
 
                     elif is_regular_dir:
                         if self.base_ignore_spec and self.base_ignore_spec.match_file(rel_path_base_str + '/'):
                             continue
-                        current_dir_ignore_spec = load_ignore_patterns(path)
-                        start_count = processed_files_count[0]
-                        self.process_directory_recursive(path, current_dir_ignore_spec, output_content, processed_files_count)
-                        end_count = processed_files_count[0]
 
-                        if end_count > start_count:
-                            new_progress = int((end_count / total_files_for_progress) * 100)
-                            if new_progress > current_progress:
-                                current_progress = new_progress
-                                self.progress_updated.emit(new_progress)
+                        current_dir_ignore_spec = load_ignore_patterns(path)
+                        # We pass a list to process_directory_recursive so it can be mutated
+                        processed_counter_ref = [files_processed_count]
+                        self.process_directory_recursive(path, current_dir_ignore_spec, output_content, processed_counter_ref)
+
+                        # Update progress based on the mutated counter
+                        newly_processed = processed_counter_ref[0] - files_processed_count
+                        if newly_processed > 0:
+                            files_processed_count = processed_counter_ref[0]
+                            if estimated_total_files > 0:
+                                progress = int((files_processed_count / estimated_total_files) * 100)
+                                self.progress_updated.emit(min(progress, 99))
 
                 except (OSError, ValueError) as e:
                      logging.error(f"Worker: Error processing item {path.name}: {e}")
@@ -446,7 +358,7 @@ class GeneratorWorker(QtCore.QObject):
             if not error_message:
                  self.progress_updated.emit(100)
 
-            logging.info("Worker finished processing.")
+            logging.info(f"Worker finished processing. Total files included: {files_processed_count}")
             final_content = '\n'.join(output_content)
             self.finished.emit(final_content, error_message if error_message else "")
 
@@ -508,6 +420,9 @@ class FileConcatenator(QtWidgets.QMainWindow):
             ],
             "Other Text Files": ["*other*"]  # Special category for unmatched text files
         }
+
+        # Pre-compile all known extensions and filenames for fast lookups
+        self.ALL_EXTENSIONS, self.ALL_FILENAMES = build_filter_sets(self.language_extensions)
 
         self.init_ui()
         self.populate_file_list()
@@ -590,6 +505,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.file_tree_widget.setColumnCount(1)
         self.file_tree_widget.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection)
         self.file_tree_widget.itemDoubleClicked.connect(self.handle_item_double_click)
+        self.file_tree_widget.itemExpanded.connect(self.populate_children)
         self.file_tree_widget.setAlternatingRowColors(True)
         main_layout.addWidget(self.file_tree_widget)
 
@@ -625,19 +541,24 @@ class FileConcatenator(QtWidgets.QMainWindow):
 
         self.update_ui_state()
 
-    def get_selected_extensions(self) -> list[str]:
-        """Get all file extensions from selected language types."""
-        selected_extensions = []
-        
+    def get_selected_filter_sets(self) -> tuple[set[str], set[str], bool]:
+        """Get the compiled sets of selected extensions and filenames."""
+        selected_exts, selected_names = set(), set()
+        handle_other = False
+
         for i in range(self.language_list_widget.count()):
             item = self.language_list_widget.item(i)
             if item.checkState() == QtCore.Qt.CheckState.Checked:
                 language_name = item.data(self.LANGUAGE_ROLE)
+                if language_name == "Other Text Files":
+                    handle_other = True
+                    continue
+
                 if language_name in self.language_extensions:
-                    selected_extensions.extend(self.language_extensions[language_name])
-        
-        # Remove duplicates and return
-        return list(set(selected_extensions))
+                    for e in self.language_extensions[language_name]:
+                        (selected_exts if e.startswith('.') else selected_names).add(e.lower())
+
+        return selected_exts, selected_names, handle_other
 
     def get_selected_language_names(self) -> list[str]:
         """Get names of selected language types for display purposes."""
@@ -727,11 +648,57 @@ class FileConcatenator(QtWidgets.QMainWindow):
     def populate_file_list(self) -> None:
         """Populate the tree widget with files and directories."""
         self.file_tree_widget.clear()
-        self.populate_tree_recursive(self.working_dir, None)
+        self.populate_directory(self.working_dir, None)
 
-    def populate_tree_recursive(self, directory: Path, parent_item: QtWidgets.QTreeWidgetItem | None):
-        """Recursively populate the tree widget."""
-        selected_extensions = self.get_selected_extensions()
+    def add_dir_node(self, parent_item: QtWidgets.QTreeWidgetItem | None, path: Path) -> QtWidgets.QTreeWidgetItem:
+        """Adds a directory node to the tree, with a dummy child to make it expandable."""
+        node = QtWidgets.QTreeWidgetItem([path.name])
+        node.setFlags(node.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
+        node.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
+        node.setData(0, self.PATH_ROLE, path)
+        node.setIcon(0, self.icon_provider.icon(QtWidgets.QFileIconProvider.IconType.Folder))
+
+        # Add a fake child to make the expander arrow show up
+        node.addChild(QtWidgets.QTreeWidgetItem())
+
+        if parent_item:
+            parent_item.addChild(node)
+        else:
+            self.file_tree_widget.addTopLevelItem(node)
+        return node
+
+    def add_file_node(self, parent_item: QtWidgets.QTreeWidgetItem, path: Path) -> None:
+        """Adds a file node to the tree."""
+        try:
+            qfileinfo = QtCore.QFileInfo(str(path))
+            specific_icon = self.icon_provider.icon(qfileinfo)
+        except Exception:
+            specific_icon = QtGui.QIcon()
+
+        item_icon = specific_icon if not specific_icon.isNull() else self.icon_provider.icon(QtWidgets.QFileIconProvider.IconType.File)
+        item = QtWidgets.QTreeWidgetItem([path.name])
+        item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
+        item.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
+        item.setData(0, self.PATH_ROLE, path)
+        item.setIcon(0, item_icon)
+        parent_item.addChild(item)
+
+    @QtCore.pyqtSlot(QtWidgets.QTreeWidgetItem)
+    def populate_children(self, item: QtWidgets.QTreeWidgetItem):
+        """Populates the children of a directory item when it's expanded."""
+        # Check if it's the first expansion (dummy child is present)
+        if not (item.childCount() > 0 and item.child(0).data(0, self.PATH_ROLE) is None):
+            return # Already populated
+
+        item.takeChildren() # Remove the dummy child
+
+        path: Path | None = item.data(0, self.PATH_ROLE)
+        if path and path.is_dir():
+            self.populate_directory(path, item)
+
+    def populate_directory(self, directory: Path, parent_item: QtWidgets.QTreeWidgetItem | None):
+        """Populate the tree widget with files and directories for one level."""
+        selected_exts, selected_names, handle_other = self.get_selected_filter_sets()
         search_text = self.search_entry.text().lower().strip()
 
         script_path = None
@@ -745,7 +712,14 @@ class FileConcatenator(QtWidgets.QMainWindow):
             entries = []
             for entry in os.scandir(directory):
                 item_path = Path(entry.path)
-                relative_path_str_for_ignore = entry.name
+
+                # Use relative path for ignore checks if possible
+                try:
+                    relative_path = item_path.relative_to(self.working_dir)
+                    relative_path_str_for_ignore = str(relative_path)
+                except ValueError:
+                    relative_path_str_for_ignore = entry.name
+
                 if entry.is_dir(follow_symlinks=False) and not relative_path_str_for_ignore.endswith('/'):
                     relative_path_str_for_ignore += '/'
 
@@ -761,6 +735,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
                 if entry.is_symlink():
                     logging.info(f"Skipping symbolic link in listing: {entry.name}")
                     continue
+
                 if search_text and search_text not in entry.name.lower():
                     continue
 
@@ -775,42 +750,18 @@ class FileConcatenator(QtWidgets.QMainWindow):
 
             for entry, item_path in entries:
                 if entry.is_dir():
-                    item = QtWidgets.QTreeWidgetItem([entry.name])
-                    item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
-                    item.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
-                    item.setData(0, self.PATH_ROLE, item_path)
-                    item.setIcon(0, self.icon_provider.icon(QtWidgets.QFileIconProvider.IconType.Folder))
-                    if parent_item is None:
-                        self.file_tree_widget.addTopLevelItem(item)
-                    else:
-                        parent_item.addChild(item)
-                    self.populate_tree_recursive(item_path, item)
+                    self.add_dir_node(parent_item, item_path)
                 elif entry.is_file():
-                    if is_binary_file(item_path):
-                        continue
-                    if not selected_extensions or matches_file_type(item_path, selected_extensions, self.language_extensions):
-                        try:
-                            qfileinfo = QtCore.QFileInfo(str(item_path))
-                            specific_icon = self.icon_provider.icon(qfileinfo)
-                        except Exception: 
-                            specific_icon = QtGui.QIcon()
-                        item_icon = specific_icon if not specific_icon.isNull() else self.icon_provider.icon(QtWidgets.QFileIconProvider.IconType.File)
-                        item = QtWidgets.QTreeWidgetItem([entry.name])
-                        item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
-                        item.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
-                        item.setData(0, self.PATH_ROLE, item_path)
-                        item.setIcon(0, item_icon)
-                        if parent_item is None:
-                            self.file_tree_widget.addTopLevelItem(item)
-                        else:
-                            parent_item.addChild(item)
+                    if not (selected_exts or selected_names or handle_other) or \
+                       matches_file_type(item_path, selected_exts, selected_names, self.ALL_EXTENSIONS, self.ALL_FILENAMES, handle_other):
+                        self.add_file_node(parent_item, item_path)
 
         except PermissionError as e:
             logging.error(f"Permission denied accessing directory: {directory}. {e}")
-            QtWidgets.QMessageBox.critical(self, "Access Denied", f"Could not read directory contents:\n{directory}\n\n{e}")
+            if parent_item: parent_item.setDisabled(True)
         except Exception as e:
             logging.error(f"Error listing directory {directory}: {e}", exc_info=True)
-            QtWidgets.QMessageBox.warning(self, "Listing Error", f"An error occurred while listing directory contents:\n{e}")
+            if parent_item: parent_item.setDisabled(True)
 
     def refresh_files(self) -> None:
         """Refresh list (reload ignores)."""
@@ -909,8 +860,8 @@ class FileConcatenator(QtWidgets.QMainWindow):
             logging.warning("Generation process already running.")
             return
 
-        selected_extensions = self.get_selected_extensions()
-        if not selected_extensions:
+        selected_exts, selected_names, handle_other = self.get_selected_filter_sets()
+        if not selected_exts and not selected_names and not handle_other:
             QtWidgets.QMessageBox.warning(self, "No File Types", "Please select at least one file type.")
             return
 
@@ -932,8 +883,11 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.worker = GeneratorWorker(
             selected_paths=selected_paths,
             base_dir=self.working_dir,
-            allowed_extensions=selected_extensions,
-            all_language_extensions=self.language_extensions,
+            selected_exts=selected_exts,
+            selected_names=selected_names,
+            all_exts=self.ALL_EXTENSIONS,
+            all_names=self.ALL_FILENAMES,
+            handle_other=handle_other,
             base_ignore_spec=self.ignore_spec,
             script_path=script_path
         )
