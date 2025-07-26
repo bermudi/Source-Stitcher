@@ -9,6 +9,7 @@ import traceback
 
 # PyQt6 imports
 from PyQt6 import QtCore, QtWidgets, QtGui
+from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem, QHeaderView, QSplitter, QStackedWidget # Added imports as per Kimi-k2's patch
 
 logging.basicConfig(
     level=logging.INFO,
@@ -476,6 +477,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.worker_thread = None
         self.worker = None
         self.is_generating = False
+        self.tree_mode = False        # New flag as per Kimi-k2's patch
 
         # Updated comprehensive language extensions
         self.language_extensions = {
@@ -510,7 +512,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         }
 
         self.init_ui()
-        self.populate_file_tree() # Changed from populate_file_list
+        self.populate_file_list() # Initial population will be in list mode
 
     def init_ui(self) -> None:
         """Create and place all PyQt6 widgets."""
@@ -532,6 +534,12 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.current_path_label.setReadOnly(True)
         self.current_path_label.setToolTip("Current Directory")
         top_nav_layout.addWidget(self.current_path_label)
+
+        # Kimi-k2's patch: Add Tree toggle button
+        self.toggle_tree_btn = QtWidgets.QPushButton("🌲 Tree")
+        self.toggle_tree_btn.setCheckable(True)
+        self.toggle_tree_btn.toggled.connect(self.switch_view_mode)
+        top_nav_layout.addWidget(self.toggle_tree_btn)
 
         search_label = QtWidgets.QLabel("Search:")
         top_nav_layout.addWidget(search_label)
@@ -580,18 +588,30 @@ class FileConcatenator(QtWidgets.QMainWindow):
             self.language_list_widget.addItem(item)
         
         self.language_list_widget.itemChanged.connect(self.refresh_files)
-        language_layout.addWidget(self.language_list_widget)
-        
-        main_layout.addWidget(language_group)
+        language_layout.addWidget(self.language_list_widget) # Original had this outside the groupbox, moved inside
+        main_layout.addWidget(language_group) # Add the group box to the main layout
 
-        # --- File Tree Widget ---
-        self.file_tree_widget = QtWidgets.QTreeWidget()
-        self.file_tree_widget.setHeaderHidden(True)
+        # Kimi-k2's patch: Replace the file-list widget with a stacked container
+        self.view_stack = QStackedWidget()
+
+        # 1) the old list widget
+        self.file_list_widget = QtWidgets.QListWidget()
+        self.file_list_widget.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.file_list_widget.itemDoubleClicked.connect(self.handle_item_double_click)
+        self.file_list_widget.setAlternatingRowColors(True)
+        self.view_stack.addWidget(self.file_list_widget)
+
+        # 2) the new tree widget
+        self.file_tree_widget = QTreeWidget()
         self.file_tree_widget.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.file_tree_widget.itemChanged.connect(self.on_tree_item_changed)
-        self.file_tree_widget.itemDoubleClicked.connect(self.handle_tree_double_click)
         self.file_tree_widget.setAlternatingRowColors(True)
-        main_layout.addWidget(self.file_tree_widget)
+        self.file_tree_widget.setHeaderLabels(["Name"])
+        self.file_tree_widget.header().setStretchLastSection(False)
+        self.file_tree_widget.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        # Kimi-k2's patch does not include double-click for tree, so it's not added here.
+        self.view_stack.addWidget(self.file_tree_widget)
+
+        main_layout.addWidget(self.view_stack) # Add the stacked widget to the main layout
 
         # --- Bottom Layout ---
         bottom_layout = QtWidgets.QHBoxLayout()
@@ -624,6 +644,19 @@ class FileConcatenator(QtWidgets.QMainWindow):
         main_layout.addLayout(bottom_layout)
 
         self.update_ui_state()
+
+    @QtCore.pyqtSlot(bool)
+    def switch_view_mode(self, tree_on: bool):
+        """Kimi-k2's patch: Flips between list and tree view and repopulates."""
+        if self.is_generating:
+            # prevent change while worker runs
+            self.toggle_tree_btn.setChecked(self.tree_mode)
+            return
+
+        self.tree_mode = tree_on
+        self.toggle_tree_btn.setText("🌲 Tree" if tree_on else "📁 List")
+        self.view_stack.setCurrentWidget(self.file_tree_widget if tree_on else self.file_list_widget)
+        self.refresh_files()
 
     def get_selected_extensions(self) -> list[str]:
         """Get all file extensions from selected language types."""
@@ -717,253 +750,321 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.btn_deselect_all_languages.setEnabled(enabled)
         self.btn_code_only.setEnabled(enabled)
         self.btn_docs_config.setEnabled(enabled)
-        self.file_tree_widget.setEnabled(enabled) # Changed from file_list_widget
+        self.view_stack.setEnabled(enabled) # Enable/disable the currently active view widget
         self.language_list_widget.setEnabled(enabled)
         self.search_entry.setEnabled(enabled)
         is_root = self.working_dir.parent == self.working_dir
         self.btn_up.setEnabled(enabled and not is_root)
         self.btn_cancel.setEnabled(not enabled)
+        self.toggle_tree_btn.setEnabled(enabled) # Enable/disable the toggle button
 
-    # ↓ replace populate_file_list by populate_file_tree
-    def populate_file_tree(self) -> None:
-        """(Re)build the directory tree with check-boxes."""
-        self.file_tree_widget.clear()
-
-        selected_exts = self.get_selected_extensions()
-        search_text    = self.search_entry.text().lower().strip()
+    def populate_file_list(self) -> None:
+        """Populate the list widget with files and directories."""
+        self.file_list_widget.clear()
+        selected_extensions = self.get_selected_extensions()
+        search_text = self.search_entry.text().lower().strip()
+        directories = []
+        files = []
 
         script_path = None
         if '__file__' in globals():
             try:
                 script_path = Path(__file__).resolve()
-            except Exception:
-                pass
+            except NameError:
+                 script_path = None
+                 logging.warning("__file__ not defined, cannot reliably skip script file.")
 
-        root_item = QtWidgets.QTreeWidgetItem(self.file_tree_widget,
-                                              [self.working_dir.name])
-        root_item.setData(0, self.PATH_ROLE, self.working_dir)
-        root_item.setFlags(root_item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
-        root_item.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
-        self.build_subtree(root_item,
-                           self.working_dir,
-                           selected_exts,
-                           search_text,
-                           script_path)
-        root_item.setExpanded(True)
-        self.file_tree_widget.sortItems(0, QtCore.Qt.SortOrder.AscendingOrder)
+        try:
+            for entry in os.scandir(self.working_dir):
+                item_path = Path(entry.path)
+                relative_path_str_for_ignore = entry.name
+                if entry.is_dir(follow_symlinks=False) and not relative_path_str_for_ignore.endswith('/'):
+                    relative_path_str_for_ignore += '/'
+
+                if self.ignore_spec and self.ignore_spec.match_file(relative_path_str_for_ignore):
+                    continue
+
+                if entry.name.startswith('.') or (script_path and item_path.resolve() == script_path):
+                     continue
+
+                if entry.is_symlink():
+                    logging.info(f"Skipping symbolic link in listing: {entry.name}")
+                    continue
+                if search_text and search_text not in entry.name.lower():
+                    continue
+
+                try:
+                     if not os.access(entry.path, os.R_OK): continue
+                     if entry.is_dir() and not os.access(entry.path, os.X_OK): continue
+                except OSError: continue
+
+                if entry.is_dir():
+                    directories.append(item_path)
+                elif entry.is_file():
+                    if is_binary_file(item_path): continue
+                    # Use the new matching logic
+                    if selected_extensions and matches_file_type(item_path, selected_extensions, self.language_extensions):
+                        files.append(item_path)
+
+        except PermissionError as e:
+            logging.error(f"Permission denied accessing directory: {self.working_dir}. {e}")
+            QtWidgets.QMessageBox.critical(self, "Access Denied", f"Could not read directory contents:\n{self.working_dir}\n\n{e}")
+            return
+        except Exception as e:
+            logging.error(f"Error listing directory {self.working_dir}: {e}", exc_info=True)
+            QtWidgets.QMessageBox.warning(self, "Listing Error", f"An error occurred while listing directory contents:\n{e}")
+
+        directories.sort(key=lambda p: p.name.lower())
+        files.sort(key=lambda p: p.name.lower())
+
+        self.file_list_widget.clear()
+        dir_icon = self.icon_provider.icon(QtWidgets.QFileIconProvider.IconType.Folder)
+        for directory in directories:
+            item = QtWidgets.QListWidgetItem(dir_icon, directory.name)
+            item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(QtCore.Qt.CheckState.Unchecked)
+            item.setData(self.PATH_ROLE, directory)
+            self.file_list_widget.addItem(item)
+
+        file_icon = self.icon_provider.icon(QtWidgets.QFileIconProvider.IconType.File)
+        for file_item in files:
+            try:
+                qfileinfo = QtCore.QFileInfo(str(file_item))
+                specific_icon = self.icon_provider.icon(qfileinfo)
+            except Exception: 
+                specific_icon = QtGui.QIcon()
+            item_icon = specific_icon if not specific_icon.isNull() else file_icon
+            item = QtWidgets.QListWidgetItem(item_icon, file_item.name)
+            item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(QtCore.Qt.CheckState.Unchecked)
+            item.setData(self.PATH_ROLE, file_item)
+            self.file_list_widget.addItem(item)
+
         self.update_ui_state()
 
-    def build_subtree(self,
-                      parent_item: QtWidgets.QTreeWidgetItem,
-                      parent_dir : Path,
-                      selected_exts: list[str],
-                      search_text : str,
-                      script_path : Path | None):
-        """Recursively attach children that pass filters."""
-        try:
-            entries = sorted(os.scandir(parent_dir),
-                             key=lambda e: (not e.is_dir(), e.name.lower()))
-        except PermissionError:
-            return
-        for e in entries:
-            p = Path(e.path)
-            rel = p.relative_to(self.working_dir)
-            ignore_name = str(rel) + ('/' if e.is_dir() else '')
+    # Kimi-k2's patch: populate_tree_widget
+    def populate_tree_widget(self):
+        """Fill the tree with every processable file under working_dir."""
+        self.file_tree_widget.clear()
+        # Display only name for the root item, handling cases like drive roots
+        root_item = QTreeWidgetItem(self.file_tree_widget, [self.working_dir.name if self.working_dir.name else str(self.working_dir)])
+        root_item.setData(0, self.PATH_ROLE, self.working_dir) # Store the actual path
+        root_item.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
+        root_item.setIcon(0, self.icon_provider.icon(QtWidgets.QFileIconProvider.IconType.Drive if self.working_dir.is_mount() else QtWidgets.QFileIconProvider.IconType.Folder))
 
-            if self.ignore_spec and self.ignore_spec.match_file(ignore_name):
-                continue
-            if e.name.startswith('.') or (script_path and p.resolve()==script_path):
-                continue
-            if search_text and search_text not in e.name.lower():
-                continue
-            if e.is_symlink():
-                continue
+        selected_ext = self.get_selected_extensions()
+        search_txt = self.search_entry.text().lower().strip()
 
-            if e.is_dir():
-                dir_item = QtWidgets.QTreeWidgetItem(parent_item,[e.name])
-                dir_item.setData(0, self.PATH_ROLE, p)
-                dir_item.setFlags(dir_item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
-                dir_item.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
-                self.build_subtree(dir_item, p, selected_exts, search_text, script_path)
-                # hide empty dirs
-                if dir_item.childCount()==0:
-                    parent_item.removeChild(dir_item)
-            else:  # file
-                if is_binary_file(p):
-                    continue
-                if selected_exts and not matches_file_type(p, selected_exts, self.language_extensions):
-                    continue
-                file_item = QtWidgets.QTreeWidgetItem(parent_item,[e.name])
-                file_item.setData(0, self.PATH_ROLE, p)
-                file_item.setFlags(file_item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
-                file_item.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
+        script_path = Path(__file__).resolve() if '__file__' in globals() else None
 
-    def on_tree_item_changed(self, item: QtWidgets.QTreeWidgetItem, column:int):
-        if column != 0: 
-            return
+        def recurse(parent_item: QTreeWidgetItem, folder: Path):
+            try:
+                # Sort directories first, then files, then by name
+                for entry in sorted(os.scandir(folder), key=lambda e: (not e.is_dir(), e.name.lower())):
+                    entry_path = Path(entry.path)
+                    # Calculate relative path for ignore spec matching
+                    rel_str = str(entry_path.relative_to(self.working_dir))
+                    if entry.is_dir(follow_symlinks=False) and not rel_str.endswith('/'):
+                        rel_str += '/' # gitignore style for directories
+
+                    # ignore filter
+                    if self.ignore_spec and self.ignore_spec.match_file(rel_str):
+                        continue
+                    # Skip the script file itself and hidden files/directories
+                    if entry.name.startswith('.') or (script_path and entry_path.resolve() == script_path):
+                        continue
+                    if entry.is_symlink():
+                        logging.info(f"Skipping symbolic link in tree listing: {entry.name}")
+                        continue
+
+                    try:
+                        if not os.access(entry.path, os.R_OK): continue
+                        if entry.is_dir() and not os.access(entry.path, os.X_OK): continue
+                    except OSError: continue
+
+                    if entry.is_dir(follow_symlinks=False):
+                        if search_txt and search_txt not in entry.name.lower():
+                            continue
+                        child = QTreeWidgetItem(parent_item, [entry.name])
+                        child.setData(0, self.PATH_ROLE, entry_path)
+                        child.setIcon(0, self.icon_provider.icon(QtWidgets.QFileIconProvider.IconType.Folder))
+                        child.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
+                        recurse(child, entry_path)    # dive deeper
+                    elif entry.is_file(follow_symlinks=False):
+                        if is_binary_file(entry_path):
+                            continue
+                        if not matches_file_type(entry_path, selected_ext, self.language_extensions):
+                            continue
+                        if search_txt and search_txt not in entry.name.lower():
+                            continue
+                        child = QTreeWidgetItem(parent_item, [entry.name])
+                        child.setData(0, self.PATH_ROLE, entry_path)
+                        try:
+                            icon = self.icon_provider.icon(QtCore.QFileInfo(str(entry_path)))
+                        except Exception:
+                            icon = self.icon_provider.icon(QtWidgets.QFileIconProvider.IconType.File)
+                        child.setIcon(0, icon)
+                        child.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
+            except (PermissionError, OSError) as e:
+                logging.warning(f"Permission/OS error during tree population for {folder}: {e}")
+                pass   # ignore unreadable folders
+            except Exception as e:
+                logging.error(f"Unexpected error during tree population for {folder}: {e}", exc_info=True)
+
+
+        recurse(root_item, self.working_dir)
+        root_item.setExpanded(True)
+
+        # cosmetic -- remove empty folders
+        def prune_empty(node):
+            for i in reversed(range(node.childCount())):
+                child = node.child(i)
+                if child.childCount() > 0: # If it has children, recurse
+                    prune_empty(child)
+                    if child.childCount() == 0: # After recursion, if it's now a leaf
+                        path_data = child.data(0, self.PATH_ROLE)
+                        if path_data and path_data.is_dir(): # And it's a directory
+                            node.removeChild(child)
+                else: # It's a leaf node
+                    path_data = child.data(0, self.PATH_ROLE)
+                    if path_data and path_data.is_dir(): # If it's an empty directory
+                        node.removeChild(child)
         
-        state = item.checkState(0)
+        prune_empty(root_item)
         
-        # a) Propagate downwards
-        def set_state_recursively(itm, st):
-            for i in range(itm.childCount()):
-                child = itm.child(i)
-                # Disconnect to prevent recursive calls during state change
-                self.file_tree_widget.itemChanged.disconnect(self.on_tree_item_changed)
-                if child.flags() & QtCore.Qt.ItemFlag.ItemIsUserCheckable:
-                    child.setCheckState(0, st)
-                self.file_tree_widget.itemChanged.connect(self.on_tree_item_changed)
-                set_state_recursively(child, st)  # Recursive call for sub-folders
+        # If the root itself becomes empty after pruning (i.e., no files found under it)
+        # and it's a directory, then clear the tree.
+        if root_item.childCount() == 0 and root_item.data(0, self.PATH_ROLE) and root_item.data(0, self.PATH_ROLE).is_dir():
+            self.file_tree_widget.clear()
+            no_files_item = QTreeWidgetItem(self.file_tree_widget, ["No processable files found."])
+            no_files_item.setFlags(no_files_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsSelectable)
+            no_files_item.setDisabled(True)
 
-        # Temporarily block signals to prevent re-triggering during downward propagation
-        self.file_tree_widget.blockSignals(True)
-        set_state_recursively(item, state)
-        self.file_tree_widget.blockSignals(False)
-
-        # b) Propagate upwards -- tristate logic
-        def update_parent(ch):
-            parent = ch.parent()
-            if not parent: 
-                return
-            
-            # Temporarily block signals for parent update
-            self.file_tree_widget.itemChanged.disconnect(self.on_tree_item_changed)
-            
-            checked_children = 0
-            unchecked_children = 0
-            partial_children = 0
-            total_checkable_children = 0
-
-            for i in range(parent.childCount()):
-                child = parent.child(i)
-                if child.flags() & QtCore.Qt.ItemFlag.ItemIsUserCheckable:
-                    total_checkable_children += 1
-                    if child.checkState(0) == QtCore.Qt.CheckState.Checked:
-                        checked_children += 1
-                    elif child.checkState(0) == QtCore.Qt.CheckState.Unchecked:
-                        unchecked_children += 1
-                    elif child.checkState(0) == QtCore.Qt.CheckState.PartiallyChecked:
-                        partial_children += 1
-            
-            if total_checkable_children == 0:  # Parent has no checkable children
-                parent.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
-            elif checked_children == total_checkable_children:
-                parent.setCheckState(0, QtCore.Qt.CheckState.Checked)
-            elif unchecked_children == total_checkable_children:
-                parent.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
-            else:
-                parent.setCheckState(0, QtCore.Qt.CheckState.PartiallyChecked)
-            
-            self.file_tree_widget.itemChanged.connect(self.on_tree_item_changed)
-            update_parent(parent)
-        
-        # Start upwards propagation after downward is done
-        update_parent(item)
-
-    def go_up_directory(self) -> None:
-        """Navigate to the parent directory."""
+    def refresh_files(self) -> None:
+        """Kimi-k2's patch: Refresh list (reload ignores) based on view mode."""
         if self.is_generating:
             return
-        
-        parent_dir = self.working_dir.parent
-        if parent_dir != self.working_dir:  # Not at filesystem root
+        self.ignore_spec = load_ignore_patterns(self.working_dir)
+
+        if self.tree_mode:
+            self.populate_tree_widget()
+        else:
+            self.populate_file_list()
+
+    def handle_item_double_click(self, item: QtWidgets.QListWidgetItem):
+        """Navigate into directory (only applicable to list view)."""
+        if self.is_generating: return
+        path_data = item.data(self.PATH_ROLE)
+        if path_data and isinstance(path_data, Path):
             try:
-                # Check if parent directory is accessible
+                st = path_data.lstat()
+                if stat.S_ISDIR(st.st_mode):
+                    _ = list(os.scandir(path_data))
+                    self.working_dir = path_data.resolve()
+                    logging.info(f"Navigated into directory: {self.working_dir}")
+                    self.refresh_files()
+                    self.search_entry.clear()
+            except PermissionError:
+                 logging.warning(f"Permission denied trying to navigate into {path_data}")
+                 QtWidgets.QMessageBox.warning(self, "Access Denied", f"Cannot open directory:\n{path_data.name}\n\nPermission denied.")
+            except FileNotFoundError:
+                 logging.warning(f"Directory not found (deleted?) on double click: {path_data}")
+                 QtWidgets.QMessageBox.warning(self, "Not Found", f"Directory not found:\n{path_data.name}")
+                 self.refresh_files()
+            except Exception as e:
+                 logging.error(f"Error navigating into directory {path_data}: {e}", exc_info=True)
+                 QtWidgets.QMessageBox.warning(self, "Navigation Error", f"Could not open directory:\n{path_data.name}\n\n{e}")
+
+    def go_up_directory(self):
+        """Navigate up (only applicable to list view)."""
+        if self.is_generating: return
+        parent_dir = self.working_dir.parent
+        if parent_dir != self.working_dir:
+            try:
                 _ = list(os.scandir(parent_dir))
                 self.working_dir = parent_dir.resolve()
                 logging.info(f"Navigated up to directory: {self.working_dir}")
-                self.search_entry.clear()
                 self.refresh_files()
-            except PermissionError:
-                logging.warning(f"Permission denied trying to navigate to parent {parent_dir}")
-                QtWidgets.QMessageBox.warning(self, "Access Denied", f"Cannot access parent directory:\n{parent_dir}\n\nPermission denied.")
-            except FileNotFoundError:
-                logging.warning(f"Parent directory not found: {parent_dir}")
-                QtWidgets.QMessageBox.warning(self, "Not Found", f"Parent directory not found:\n{parent_dir}")
-            except Exception as e:
-                logging.error(f"Error navigating to parent directory {parent_dir}: {e}", exc_info=True)
-                QtWidgets.QMessageBox.warning(self, "Navigation Error", f"Could not access parent directory:\n{parent_dir}\n\n{e}")
-
-    def handle_tree_double_click(self, item: QtWidgets.QTreeWidgetItem, column:int):
-        if self.is_generating: return
-        path = item.data(0, self.PATH_ROLE)
-        if path and path.is_dir():
-            # Check if directory is accessible before changing working_dir
-            try:
-                _ = list(os.scandir(path))
-                self.working_dir = path.resolve()
-                logging.info(f"Navigated into directory: {self.working_dir}")
                 self.search_entry.clear()
-                self.refresh_files() # now rebuilds the tree
             except PermissionError:
-                 logging.warning(f"Permission denied trying to navigate into {path}")
-                 QtWidgets.QMessageBox.warning(self, "Access Denied", f"Cannot open directory:\n{path.name}\n\nPermission denied.")
+                 logging.warning(f"Permission denied trying to navigate up to {parent_dir}")
+                 QtWidgets.QMessageBox.warning(self, "Access Denied", f"Cannot open parent directory:\n{parent_dir}\n\nPermission denied.")
             except FileNotFoundError:
-                 logging.warning(f"Directory not found (deleted?) on double click: {path}")
-                 QtWidgets.QMessageBox.warning(self, "Not Found", f"Directory not found:\n{path.name}")
-                 self.refresh_files() # Refresh to update view if directory is gone
+                 logging.warning(f"Parent directory not found (deleted?): {parent_dir}")
+                 QtWidgets.QMessageBox.warning(self, "Not Found", f"Parent directory not found:\n{parent_dir}")
             except Exception as e:
-                 logging.error(f"Error navigating into directory {path}: {e}", exc_info=True)
-                 QtWidgets.QMessageBox.warning(self, "Navigation Error", f"Could not open directory:\n{path.name}\n\n{e}")
-
-    # called from buttons or filters
-    def refresh_files(self):
-        """Refresh list (reload ignores)."""
-        if self.is_generating: return
-        self.ignore_spec = load_ignore_patterns(self.working_dir)
-        self.populate_file_tree() # Changed from populate_file_list
-
-    def collect_checked_paths(self) -> list[Path]:
-        paths=[]
-        def recurse(item):
-            # Only add if it's a file or a fully checked directory
-            # If it's a directory, the worker will recursively process it.
-            # If it's a file, add it directly.
-            p=item.data(0,self.PATH_ROLE)
-            if p:
-                if p.is_file() and item.checkState(0) == QtCore.Qt.CheckState.Checked:
-                    paths.append(p)
-                elif p.is_dir() and item.checkState(0) == QtCore.Qt.CheckState.Checked:
-                    paths.append(p) # Add directory if fully checked
-
-            # Continue recursion for all children, regardless of parent's check state
-            # This ensures individual files/sub-folders selected within a partially checked folder are collected.
-            for i in range(item.childCount()):
-                recurse(item.child(i))
-        
-        for i in range(self.file_tree_widget.topLevelItemCount()):
-            recurse(self.file_tree_widget.topLevelItem(i))
-        return paths
+                 logging.error(f"Error navigating up to directory {parent_dir}: {e}", exc_info=True)
+                 QtWidgets.QMessageBox.warning(self, "Navigation Error", f"Could not open parent directory:\n{parent_dir}\n\n{e}")
 
     def select_all(self) -> None:
-        """Select all checkable items."""
+        """Select all checkable items in the active view."""
         if self.is_generating: return
-        self.set_tree_state(QtCore.Qt.CheckState.Checked)
+        if self.tree_mode:
+            if self.file_tree_widget.topLevelItemCount() > 0:
+                root_item = self.file_tree_widget.topLevelItem(0)
+                stack = [root_item]
+                while stack:
+                    node = stack.pop()
+                    # Only check files, not directories
+                    path_data = node.data(0, self.PATH_ROLE)
+                    if path_data and path_data.is_file():
+                        node.setCheckState(0, QtCore.Qt.CheckState.Checked)
+                    
+                    for i in range(node.childCount()):
+                        child = node.child(i)
+                        stack.append(child) # Add children to stack to traverse
+        else: # List mode
+            for i in range(self.file_list_widget.count()):
+                item = self.file_list_widget.item(i)
+                if item.flags() & QtCore.Qt.ItemFlag.ItemIsUserCheckable:
+                     item.setCheckState(QtCore.Qt.CheckState.Checked)
 
     def deselect_all(self) -> None:
-        """Deselect all checkable items."""
+        """Deselect all checkable items in the active view."""
         if self.is_generating: return
-        self.set_tree_state(QtCore.Qt.CheckState.Unchecked)
+        if self.tree_mode:
+            if self.file_tree_widget.topLevelItemCount() > 0:
+                root_item = self.file_tree_widget.topLevelItem(0)
+                stack = [root_item]
+                while stack:
+                    node = stack.pop()
+                    node.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
+                    for i in range(node.childCount()):
+                        child = node.child(i)
+                        stack.append(child)
+        else: # List mode
+            for i in range(self.file_list_widget.count()):
+                item = self.file_list_widget.item(i)
+                if item.flags() & QtCore.Qt.ItemFlag.ItemIsUserCheckable:
+                     item.setCheckState(QtCore.Qt.CheckState.Unchecked)
 
-    def set_tree_state(self, st):
-        """Sets the check state of all items in the tree."""
-        # Temporarily block signals to prevent itemChanged from firing for every item
-        self.file_tree_widget.blockSignals(True) 
-        def recurse(item):
-            if item.flags() & QtCore.Qt.ItemFlag.ItemIsUserCheckable:
-                item.setCheckState(0, st)
-            for i in range(item.childCount()):
-                recurse(item.child(i))
-        for i in range(self.file_tree_widget.topLevelItemCount()):
-            recurse(self.file_tree_widget.topLevelItem(i))
-        self.file_tree_widget.blockSignals(False)
-        # Manually trigger a refresh for the top-level items to update their state visually if needed
-        # (though on_tree_item_changed handles propagation, this ensures the root state is correct)
-        for i in range(self.file_tree_widget.topLevelItemCount()):
-            item = self.file_tree_widget.topLevelItem(i)
-            # Trigger itemChanged for the root item to ensure propagation logic applies
-            self.on_tree_item_changed(item, 0)
-
+    # Kimi-k2's patch: get_selected_paths
+    def get_selected_paths(self) -> list[Path]:
+        """Return the checked items from whichever widget is active."""
+        if self.tree_mode:
+            paths = []
+            if self.file_tree_widget.topLevelItemCount() > 0:
+                stack = [self.file_tree_widget.topLevelItem(0)]
+                while stack:
+                    node = stack.pop()
+                    for i in range(node.childCount()):
+                        child = node.child(i)
+                        if child.checkState(0) == QtCore.Qt.CheckState.Checked:
+                            path = child.data(0, self.PATH_ROLE)
+                            if path and isinstance(path, Path) and path.is_file():
+                                paths.append(path)
+                        if child.childCount():
+                            stack.append(child)
+            return paths
+        else: # List mode
+            paths = []
+            for i in range(self.file_list_widget.count()):
+                item = self.file_list_widget.item(i)
+                if item.checkState() == QtCore.Qt.CheckState.Checked:
+                    path = item.data(self.PATH_ROLE)
+                    if path and isinstance(path, Path): # In list mode, both files and directories can be selected
+                        paths.append(path)
+            return paths
 
     def start_generate_file(self) -> None:
         """Initiates the file generation process in a background thread."""
@@ -976,10 +1077,11 @@ class FileConcatenator(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(self, "No File Types", "Please select at least one file type.")
             return
 
-        selected_paths = self.collect_checked_paths() # Changed to use collect_checked_paths()
+        # Use the new unified method to get selected paths
+        selected_paths = self.get_selected_paths()
 
         if not selected_paths:
-            QtWidgets.QMessageBox.warning(self, "No Selection", "Please tick at least one file or directory.") # Updated message
+            QtWidgets.QMessageBox.warning(self, "No Selection", "Please select at least one file or directory.")
             return
 
         self.is_generating = True
