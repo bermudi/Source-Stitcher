@@ -1,12 +1,11 @@
 import sys
 import os
 import logging
-from pathlib import Path
-from datetime import datetime
 import pathspec
 import stat
 import traceback
-
+from pathlib import Path
+from datetime import datetime
 # PyQt6 imports
 from PyQt6 import QtCore, QtWidgets, QtGui
 
