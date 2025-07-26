@@ -223,7 +223,6 @@ class GeneratorWorker(QtCore.QObject):
         all_names: set[str],
         handle_other: bool,
         base_ignore_spec: pathspec.PathSpec | None,
-        script_path: Path | None,
     ):
         super().__init__()
         self.selected_paths = selected_paths
@@ -234,7 +233,6 @@ class GeneratorWorker(QtCore.QObject):
         self.all_names = all_names
         self.handle_other = handle_other
         self.base_ignore_spec = base_ignore_spec
-        self.script_path = script_path
         self._is_cancelled = False
 
     def cancel(self):
@@ -375,9 +373,6 @@ class GeneratorWorker(QtCore.QObject):
                 ):
                     continue
 
-                if self.script_path and full_path.resolve() == self.script_path:
-                    continue
-
                 # Use the new matching logic
                 if not matches_file_type(
                     full_path,
@@ -453,8 +448,6 @@ class GeneratorWorker(QtCore.QObject):
                         if self.base_ignore_spec and self.base_ignore_spec.match_file(
                             rel_path_base_str
                         ):
-                            continue
-                        if self.script_path and path.resolve() == self.script_path:
                             continue
 
                         if matches_file_type(
@@ -840,7 +833,6 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
         self.progress_bar.setMinimumWidth(200)
-        self.btn_code_only.clicked.connect(self.select_code_only)
         self.progress_bar.setFormat("%p%")
         bottom_layout.addWidget(self.progress_bar)
 
@@ -1058,13 +1050,6 @@ class FileConcatenator(QtWidgets.QMainWindow):
         selected_exts, selected_names, handle_other = self.get_selected_filter_sets()
         search_text = self.search_entry.text().lower().strip()
 
-        script_path = None
-        if "__file__" in globals():
-            try:
-                script_path = Path(__file__).resolve()
-            except NameError:
-                script_path = None
-
         try:
             entries = []
             for entry in os.scandir(directory):
@@ -1088,9 +1073,6 @@ class FileConcatenator(QtWidgets.QMainWindow):
                     continue
 
                 if entry.name.startswith("."):
-                    continue
-
-                if script_path and item_path.resolve() == script_path:
                     continue
 
                 if entry.is_symlink():
@@ -1296,8 +1278,6 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.progress_bar.setMaximum(100)
         self.progress_bar.setFormat("Starting...")
 
-        script_path = Path(__file__).resolve() if "__file__" in globals() else None
-
         self.worker_thread = QtCore.QThread()
         self.worker = GeneratorWorker(
             selected_paths=selected_paths,
@@ -1308,7 +1288,6 @@ class FileConcatenator(QtWidgets.QMainWindow):
             all_names=self.ALL_FILENAMES,
             handle_other=handle_other,
             base_ignore_spec=self.ignore_spec,
-            script_path=script_path,
         )
         self.worker.moveToThread(self.worker_thread)
 
