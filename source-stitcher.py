@@ -667,7 +667,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
             self.file_tree_widget.addTopLevelItem(node)
         return node
 
-    def add_file_node(self, parent_item: QtWidgets.QTreeWidgetItem, path: Path) -> None:
+    def add_file_node(self, parent_item: QtWidgets.QTreeWidgetItem | None, path: Path) -> None:
         """Adds a file node to the tree."""
         try:
             qfileinfo = QtCore.QFileInfo(str(path))
@@ -681,7 +681,11 @@ class FileConcatenator(QtWidgets.QMainWindow):
         item.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
         item.setData(0, self.PATH_ROLE, path)
         item.setIcon(0, item_icon)
-        parent_item.addChild(item)
+        
+        if parent_item:
+            parent_item.addChild(item)
+        else:
+            self.file_tree_widget.addTopLevelItem(item)
 
     @QtCore.pyqtSlot(QtWidgets.QTreeWidgetItem)
     def populate_children(self, item: QtWidgets.QTreeWidgetItem):
