@@ -9,3 +9,8 @@ dependencies = [
     "PyQt6", 
     "atomicwrites"
 ]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.17.0",
+]
