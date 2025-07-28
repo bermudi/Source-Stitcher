@@ -1516,7 +1516,6 @@ class FileConcatenator(QtWidgets.QMainWindow):
         node.setFlags(
             node.flags()
             | QtCore.Qt.ItemFlag.ItemIsUserCheckable
-            | QtCore.Qt.ItemFlag.ItemIsAutoTristate
         )
         node.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
         node.setData(0, self.PATH_ROLE, path)
