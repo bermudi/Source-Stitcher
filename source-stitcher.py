@@ -10,6 +10,7 @@ import traceback
 from dataclasses import dataclass
 from typing import Optional, Dict, List, Set, Tuple
 from atomicwrites import atomic_write  # type: ignore
+import subprocess
 
 # PyQt6 imports
 from PyQt6 import QtCore, QtWidgets, QtGui
@@ -25,6 +26,7 @@ logging.basicConfig(
 @dataclass
 class AppSettings:
     """Application-level settings and configuration."""
+
     window_title: str = "SOTA Concatenator"
     organization_name: str = "YourOrg"
     application_version: str = "1.5-tree"
@@ -37,18 +39,21 @@ class AppSettings:
 @dataclass
 class FilterSettings:
     """File filtering and selection configuration."""
+
     selected_extensions: Set[str]
     selected_filenames: Set[str]
     all_known_extensions: Set[str]
     all_known_filenames: Set[str]
     handle_other_text_files: bool
     ignore_spec: Optional[pathspec.PathSpec] = None
+    global_ignore_spec: Optional[pathspec.PathSpec] = None
     search_text: str = ""
 
 
 @dataclass
 class GenerationOptions:
     """Options for file generation and processing."""
+
     selected_paths: List[Path]
     base_directory: Path
     output_format: str = "markdown"
@@ -60,23 +65,24 @@ class GenerationOptions:
     # Default encoding to use if none specified
     default_encoding: str = "utf-8"
     line_ending: str = "\n"
-    
+
     def __post_init__(self):
         # Set default encodings if not provided
         if self.encodings is None:
             self.encodings = [
-                'utf-8',          # Most common encoding for modern text files
-                'utf-8-sig',      # UTF-8 with BOM
-                'latin-1',        # Also known as ISO-8859-1, common in Western Europe
-                'iso-8859-1',     # ISO Latin 1
-                'cp1252',         # Windows-1252, common on Windows systems
-                'ascii',          # Basic ASCII
+                "utf-8",  # Most common encoding for modern text files
+                "utf-8-sig",  # UTF-8 with BOM
+                "latin-1",  # Also known as ISO-8859-1, common in Western Europe
+                "iso-8859-1",  # ISO Latin 1
+                "cp1252",  # Windows-1252, common on Windows systems
+                "ascii",  # Basic ASCII
             ]
 
 
 @dataclass
 class UISettings:
     """User interface configuration and state."""
+
     language_list_max_height: int = 140
     progress_bar_min_width: int = 200
     enable_alternating_row_colors: bool = True
@@ -87,6 +93,7 @@ class UISettings:
 @dataclass
 class WorkerConfig:
     """Configuration for the background worker thread."""
+
     filter_settings: FilterSettings
     generation_options: GenerationOptions
     estimated_total_files: int = 0
@@ -95,15 +102,28 @@ class WorkerConfig:
 
 # --- Helper Function for Ignore Patterns ---
 def load_ignore_patterns(directory: Path) -> pathspec.PathSpec | None:
-    """Loads ignore patterns from .gitignore in the specified directory."""
-    gitignore_path = directory / ".gitignore"
+    """Loads ignore patterns from various ignore files in the specified directory."""
     patterns = []
-    if gitignore_path.is_file():
-        try:
-            with gitignore_path.open("r", encoding="utf-8", errors="ignore") as f:
-                patterns.extend(f.readlines())
-        except Exception as e:
-            logging.warning(f"Could not read {gitignore_path}: {e}")
+    ignore_files = [".gitignore", ".npmignore", ".dockerignore"]
+    for ig_file in ignore_files:
+        ignore_path = directory / ig_file
+        if ignore_path.is_file():
+            try:
+                with ignore_path.open("r", encoding="utf-8", errors="ignore") as f:
+                    patterns.extend(f.readlines())
+            except Exception as e:
+                logging.warning(f"Could not read {ignore_path}: {e}")
+
+    # Also load .git/info/exclude if .git exists
+    git_dir = directory / ".git"
+    if git_dir.is_dir():
+        exclude_path = git_dir / "info" / "exclude"
+        if exclude_path.is_file():
+            try:
+                with exclude_path.open("r", encoding="utf-8", errors="ignore") as f:
+                    patterns.extend(f.readlines())
+            except Exception as e:
+                logging.warning(f"Could not read {exclude_path}: {e}")
 
     if patterns:
         try:
@@ -111,7 +131,7 @@ def load_ignore_patterns(directory: Path) -> pathspec.PathSpec | None:
                 pathspec.patterns.GitWildMatchPattern, patterns  # type: ignore[attr-defined]
             )
         except Exception as e:
-            logging.error(f"Error parsing ignore patterns from {gitignore_path}: {e}")
+            logging.error(f"Error parsing ignore patterns from {directory}: {e}")
             return None
     return None
 
@@ -311,45 +331,51 @@ class GeneratorWorker(QtCore.QObject):
                 f"Skipping binary file detected during read: {filepath.name}"
             )
             return None
-            
+
         # Get the list of encodings to try from config, or use default
-        encodings = self.config.generation_options.encodings or [self.config.generation_options.default_encoding]
-        
+        encodings = self.config.generation_options.encodings or [
+            self.config.generation_options.default_encoding
+        ]
+
         # Track the last exception for better error reporting
         last_error = None
-        
+
         for encoding in encodings:
             try:
                 try:
                     # Try reading the file with the current encoding
-                    content = filepath.read_text(encoding=encoding, errors='strict')
+                    content = filepath.read_text(encoding=encoding, errors="strict")
                 except MemoryError:
-                    logging.warning(f"MemoryError reading {filepath}, falling back to chunked read with {encoding}.")
+                    logging.warning(
+                        f"MemoryError reading {filepath}, falling back to chunked read with {encoding}."
+                    )
                     content = ""
-                    with filepath.open("r", encoding=encoding, errors='strict') as f:
+                    with filepath.open("r", encoding=encoding, errors="strict") as f:
                         for chunk in iter(lambda: f.read(1024 * 1024), ""):
                             content += chunk
-                
+
                 # If we get here, the file was successfully read with this encoding
                 if not content.strip():  # Skip empty or whitespace-only files
                     logging.info(f"Skipping empty file: {filepath.name}")
                     return None
-                    
+
                 # Log which encoding worked for this file
-                if encoding.lower() != 'utf-8':
-                    logging.info(f"Successfully read {filepath.name} with {encoding} encoding")
-                    
+                if encoding.lower() != "utf-8":
+                    logging.info(
+                        f"Successfully read {filepath.name} with {encoding} encoding"
+                    )
+
                 return content
-                
+
             except UnicodeDecodeError as e:
                 last_error = f"Failed to decode with {encoding}: {e}"
                 continue  # Try the next encoding
-                
+
             except (PermissionError, FileNotFoundError, OSError) as e:
                 # These errors are not encoding-related, so we can stop trying
                 logging.warning(f"Error reading {filepath.name}: {e}")
                 return None
-                
+
         # If we get here, all encodings failed
         logging.warning(
             f"Skipping file {filepath.name} - could not decode with any encoding. "
@@ -361,6 +387,7 @@ class GeneratorWorker(QtCore.QObject):
         self,
         dir_path: Path,
         current_dir_ignore_spec: pathspec.PathSpec | None,
+        seen: Set[Tuple[int, int]],
     ) -> int:
         """
         Recursively count matching files in the directory, respecting filters and ignore patterns.
@@ -379,8 +406,13 @@ class GeneratorWorker(QtCore.QObject):
                 return count
             root_path = Path(root)
 
+            dirs.sort(key=str.lower)
+            files.sort(key=str.lower)
+
             try:
-                root_relative_to_base = root_path.relative_to(self.config.generation_options.base_directory)
+                root_relative_to_base = root_path.relative_to(
+                    self.config.generation_options.base_directory
+                )
                 root_relative_to_current = root_path.relative_to(dir_path)
             except ValueError:
                 logging.warning(
@@ -406,6 +438,12 @@ class GeneratorWorker(QtCore.QObject):
                         str(root_relative_to_current / d) + "/"
                     )
                 )
+                and (
+                    not self.config.filter_settings.global_ignore_spec
+                    or not self.config.filter_settings.global_ignore_spec.match_file(
+                        str(root_relative_to_base / d) + "/"
+                    )
+                )
             ]
 
             for file_name in files:
@@ -417,7 +455,7 @@ class GeneratorWorker(QtCore.QObject):
                 full_path = root_path / file_name
 
                 try:
-                    st = full_path.lstat()
+                    st = os.stat(full_path)
                     if not stat.S_ISREG(st.st_mode) or st.st_size == 0:
                         continue
                 except OSError as e:
@@ -427,7 +465,9 @@ class GeneratorWorker(QtCore.QObject):
                     continue
 
                 try:
-                    relative_path_to_base = full_path.relative_to(self.config.generation_options.base_directory)
+                    relative_path_to_base = full_path.relative_to(
+                        self.config.generation_options.base_directory
+                    )
                     relative_path_to_current = full_path.relative_to(dir_path)
                 except ValueError:
                     logging.warning(
@@ -436,12 +476,23 @@ class GeneratorWorker(QtCore.QObject):
                     continue
 
                 if (
-                    self.config.filter_settings.ignore_spec
-                    and self.config.filter_settings.ignore_spec.match_file(str(relative_path_to_base))
-                ) or (
-                    current_dir_ignore_spec
-                    and current_dir_ignore_spec.match_file(
-                        str(relative_path_to_current)
+                    (
+                        self.config.filter_settings.ignore_spec
+                        and self.config.filter_settings.ignore_spec.match_file(
+                            str(relative_path_to_base)
+                        )
+                    )
+                    or (
+                        current_dir_ignore_spec
+                        and current_dir_ignore_spec.match_file(
+                            str(relative_path_to_current)
+                        )
+                    )
+                    or (
+                        self.config.filter_settings.global_ignore_spec
+                        and self.config.filter_settings.global_ignore_spec.match_file(
+                            str(relative_path_to_base)
+                        )
                     )
                 ):
                     continue
@@ -460,6 +511,10 @@ class GeneratorWorker(QtCore.QObject):
                 if is_binary_file(full_path):
                     continue
 
+                dev_ino = (st.st_dev, st.st_ino)
+                if dev_ino in seen:
+                    continue
+                seen.add(dev_ino)
                 count += 1
 
         return count
@@ -470,6 +525,7 @@ class GeneratorWorker(QtCore.QObject):
         current_dir_ignore_spec: pathspec.PathSpec | None,
         output_file,
         files_processed_counter: List[int],
+        seen: Set[Tuple[int, int]],
     ) -> None:
         """
         Recursively process directory for files, appending to output_content.
@@ -490,8 +546,13 @@ class GeneratorWorker(QtCore.QObject):
                 return
             root_path = Path(root)
 
+            dirs.sort(key=str.lower)
+            files.sort(key=str.lower)
+
             try:
-                root_relative_to_base = root_path.relative_to(self.config.generation_options.base_directory)
+                root_relative_to_base = root_path.relative_to(
+                    self.config.generation_options.base_directory
+                )
                 root_relative_to_current = root_path.relative_to(dir_path)
             except ValueError:
                 logging.warning(
@@ -517,6 +578,12 @@ class GeneratorWorker(QtCore.QObject):
                         str(root_relative_to_current / d) + "/"
                     )
                 )
+                and (
+                    not self.config.filter_settings.global_ignore_spec
+                    or not self.config.filter_settings.global_ignore_spec.match_file(
+                        str(root_relative_to_base / d) + "/"
+                    )
+                )
             ]
 
             for file_name in files:
@@ -528,8 +595,8 @@ class GeneratorWorker(QtCore.QObject):
                 full_path = root_path / file_name
 
                 try:
-                    st = full_path.lstat()
-                    if not stat.S_ISREG(st.st_mode):
+                    st = os.stat(full_path)
+                    if not stat.S_ISREG(st.st_mode) or st.st_size == 0:
                         continue
                 except OSError as e:
                     logging.warning(
@@ -537,8 +604,16 @@ class GeneratorWorker(QtCore.QObject):
                     )
                     continue
 
+                dev_ino = (st.st_dev, st.st_ino)
+                if dev_ino in seen:
+                    logging.info(f"Skipping duplicate file (same inode): {full_path}")
+                    continue
+                seen.add(dev_ino)
+
                 try:
-                    relative_path_to_base = full_path.relative_to(self.config.generation_options.base_directory)
+                    relative_path_to_base = full_path.relative_to(
+                        self.config.generation_options.base_directory
+                    )
                     relative_path_to_current = full_path.relative_to(dir_path)
                 except ValueError:
                     logging.warning(
@@ -547,12 +622,23 @@ class GeneratorWorker(QtCore.QObject):
                     continue
 
                 if (
-                    self.config.filter_settings.ignore_spec
-                    and self.config.filter_settings.ignore_spec.match_file(str(relative_path_to_base))
-                ) or (
-                    current_dir_ignore_spec
-                    and current_dir_ignore_spec.match_file(
-                        str(relative_path_to_current)
+                    (
+                        self.config.filter_settings.ignore_spec
+                        and self.config.filter_settings.ignore_spec.match_file(
+                            str(relative_path_to_base)
+                        )
+                    )
+                    or (
+                        current_dir_ignore_spec
+                        and current_dir_ignore_spec.match_file(
+                            str(relative_path_to_current)
+                        )
+                    )
+                    or (
+                        self.config.filter_settings.global_ignore_spec
+                        and self.config.filter_settings.global_ignore_spec.match_file(
+                            str(relative_path_to_base)
+                        )
                     )
                 ):
                     continue
@@ -575,7 +661,7 @@ class GeneratorWorker(QtCore.QObject):
 
                     relative_path_output = relative_path_to_base
                     ext = full_path.suffix[1:] if full_path.suffix else "txt"
-                    
+
                     # Write directly to the output file
                     output_file.write(f"\n--- File: {relative_path_output} ---\n")
                     output_file.write(f"```{ext}\n")
@@ -593,31 +679,45 @@ class GeneratorWorker(QtCore.QObject):
         """Main execution method for the worker thread."""
         import tempfile
         import shutil
-        
+
         error_message = ""
-        
+
         # Pre-scan phase to count matching files accurately
         self.status_updated.emit("Pre-scanning files...")
         total_files = 0
+        seen: Set[Tuple[int, int]] = set()
+        self.config.generation_options.selected_paths.sort(key=lambda p: p.name.lower())
         for path in self.config.generation_options.selected_paths:
             if self._is_cancelled:
                 break
             try:
-                st = path.lstat()
+                st = os.stat(path)
                 is_regular_file = stat.S_ISREG(st.st_mode)
                 is_regular_dir = stat.S_ISDIR(st.st_mode)
 
                 rel_path_base_str = ""
                 try:
-                    rel_path_base_str = str(path.relative_to(self.config.generation_options.base_directory))
+                    rel_path_base_str = str(
+                        path.relative_to(self.config.generation_options.base_directory)
+                    )
                 except ValueError:
                     pass
 
                 if is_regular_file:
                     if st.st_size == 0:
                         continue
-                    if self.config.filter_settings.ignore_spec and self.config.filter_settings.ignore_spec.match_file(
-                        rel_path_base_str
+                    if (
+                        self.config.filter_settings.ignore_spec
+                        and self.config.filter_settings.ignore_spec.match_file(
+                            rel_path_base_str
+                        )
+                    ):
+                        continue
+                    if (
+                        self.config.filter_settings.global_ignore_spec
+                        and self.config.filter_settings.global_ignore_spec.match_file(
+                            rel_path_base_str
+                        )
                     ):
                         continue
 
@@ -634,11 +734,25 @@ class GeneratorWorker(QtCore.QObject):
                     if is_binary_file(path):
                         continue
 
+                    dev_ino = (st.st_dev, st.st_ino)
+                    if dev_ino in seen:
+                        continue
+                    seen.add(dev_ino)
                     total_files += 1
 
                 elif is_regular_dir:
-                    if self.config.filter_settings.ignore_spec and self.config.filter_settings.ignore_spec.match_file(
-                        rel_path_base_str + "/"
+                    if (
+                        self.config.filter_settings.ignore_spec
+                        and self.config.filter_settings.ignore_spec.match_file(
+                            rel_path_base_str + "/"
+                        )
+                    ):
+                        continue
+                    if (
+                        self.config.filter_settings.global_ignore_spec
+                        and self.config.filter_settings.global_ignore_spec.match_file(
+                            rel_path_base_str + "/"
+                        )
                     ):
                         continue
 
@@ -646,6 +760,7 @@ class GeneratorWorker(QtCore.QObject):
                     total_files += self.count_directory_recursive(
                         path,
                         current_dir_ignore_spec,
+                        seen,
                     )
 
             except (OSError, ValueError) as e:
@@ -674,8 +789,12 @@ class GeneratorWorker(QtCore.QObject):
         files_processed_count = 0
 
         # Create a temporary file for streaming output
-        temp_fd, temp_path = tempfile.mkstemp(suffix='.md', text=True)
-        output_file = os.fdopen(temp_fd, 'w', encoding='utf-8')
+        temp_fd, temp_path = tempfile.mkstemp(suffix=".md", text=True)
+        output_file = os.fdopen(temp_fd, "w", encoding="utf-8")
+
+        # Reset seen for processing
+        seen = set()
+        self.config.generation_options.selected_paths.sort(key=lambda p: p.name.lower())
 
         try:
             for path in self.config.generation_options.selected_paths:
@@ -683,21 +802,43 @@ class GeneratorWorker(QtCore.QObject):
                     break
 
                 try:
-                    st = path.lstat()
+                    st = os.stat(path)
                     is_regular_file = stat.S_ISREG(st.st_mode)
                     is_regular_dir = stat.S_ISDIR(st.st_mode)
 
                     rel_path_base_str = ""
                     try:
-                        rel_path_base_str = str(path.relative_to(self.config.generation_options.base_directory))
+                        rel_path_base_str = str(
+                            path.relative_to(
+                                self.config.generation_options.base_directory
+                            )
+                        )
                     except ValueError:
                         pass
 
                     if is_regular_file:
-                        if self.config.filter_settings.ignore_spec and self.config.filter_settings.ignore_spec.match_file(
-                            rel_path_base_str
+                        if (
+                            self.config.filter_settings.ignore_spec
+                            and self.config.filter_settings.ignore_spec.match_file(
+                                rel_path_base_str
+                            )
                         ):
                             continue
+                        if (
+                            self.config.filter_settings.global_ignore_spec
+                            and self.config.filter_settings.global_ignore_spec.match_file(
+                                rel_path_base_str
+                            )
+                        ):
+                            continue
+
+                        dev_ino = (st.st_dev, st.st_ino)
+                        if dev_ino in seen:
+                            logging.info(
+                                f"Skipping duplicate file (same inode): {path}"
+                            )
+                            continue
+                        seen.add(dev_ino)
 
                         if matches_file_type(
                             path,
@@ -711,7 +852,9 @@ class GeneratorWorker(QtCore.QObject):
                             if file_content is not None:
                                 ext = path.suffix[1:] if path.suffix else "txt"
                                 try:
-                                    output_file.write(f"\n--- File: {rel_path_base_str} ---\n")
+                                    output_file.write(
+                                        f"\n--- File: {rel_path_base_str} ---\n"
+                                    )
                                     output_file.write(f"```{ext}\n")
                                     output_file.write(file_content)
                                     output_file.write("\n```\n\n")
@@ -726,16 +869,25 @@ class GeneratorWorker(QtCore.QObject):
                                 files_processed_count += 1
                                 if total_files > 0:
                                     progress = int(
-                                        (files_processed_count / total_files)
-                                        * 100
+                                        (files_processed_count / total_files) * 100
                                     )
                                     self.progress_updated.emit(
                                         min(progress, 99)
                                     )  # Keep it below 100 until the end
 
                     elif is_regular_dir:
-                        if self.config.filter_settings.ignore_spec and self.config.filter_settings.ignore_spec.match_file(
-                            rel_path_base_str + "/"
+                        if (
+                            self.config.filter_settings.ignore_spec
+                            and self.config.filter_settings.ignore_spec.match_file(
+                                rel_path_base_str + "/"
+                            )
+                        ):
+                            continue
+                        if (
+                            self.config.filter_settings.global_ignore_spec
+                            and self.config.filter_settings.global_ignore_spec.match_file(
+                                rel_path_base_str + "/"
+                            )
                         ):
                             continue
 
@@ -747,6 +899,7 @@ class GeneratorWorker(QtCore.QObject):
                             current_dir_ignore_spec,
                             output_file,  # Pass the file object instead of the list
                             processed_counter_ref,
+                            seen,
                         )
 
                         # Update progress based on the mutated counter
@@ -757,8 +910,7 @@ class GeneratorWorker(QtCore.QObject):
                             files_processed_count = processed_counter_ref[0]
                             if total_files > 0:
                                 progress = int(
-                                    (files_processed_count / total_files)
-                                    * 100
+                                    (files_processed_count / total_files) * 100
                                 )
                                 self.progress_updated.emit(min(progress, 99))
 
@@ -785,7 +937,7 @@ class GeneratorWorker(QtCore.QObject):
                 f"Worker finished processing. Total files included: {files_processed_count}"
             )
             output_file.close()
-            
+
             if not self._is_cancelled and not error_message:
                 self.finished.emit(temp_path, "")
             else:
@@ -796,13 +948,14 @@ class GeneratorWorker(QtCore.QObject):
         except Exception as e:
             logging.error(f"Worker error: {e}", exc_info=True)
             error_message = f"Error during processing: {e}"
-            if 'output_file' in locals() and not output_file.closed:
+            if "output_file" in locals() and not output_file.closed:
                 output_file.close()
-            if 'temp_path' in locals() and os.path.exists(temp_path):
+            if "temp_path" in locals() and os.path.exists(temp_path):
                 os.unlink(temp_path)
             self.finished.emit("", error_message)
         finally:
             self.status_updated.emit("Finished")
+
 
 # --- Main Application Window ---
 class FileConcatenator(QtWidgets.QMainWindow):
@@ -822,6 +975,28 @@ class FileConcatenator(QtWidgets.QMainWindow):
 
         self.ignore_spec = load_ignore_patterns(self.working_dir)
         self.icon_provider = QtWidgets.QFileIconProvider()
+
+        # Load global gitignore
+        global_patterns = []
+        try:
+            global_ignore = (
+                subprocess.check_output(["git", "config", "--get", "core.excludesFile"])
+                .decode()
+                .strip()
+            )
+            global_path = Path(global_ignore).expanduser()
+            if global_path.is_file():
+                with global_path.open("r", encoding="utf-8", errors="ignore") as f:
+                    global_patterns = f.readlines()
+        except Exception as e:
+            logging.warning(f"Could not load global gitignore: {e}")
+        self.global_ignore_spec = (
+            pathspec.PathSpec.from_lines(
+                pathspec.patterns.GitWildMatchPattern, global_patterns
+            )
+            if global_patterns
+            else None
+        )
 
         self.worker_thread: Optional[QtCore.QThread] = None
         self.worker: Optional[GeneratorWorker] = None
@@ -1083,7 +1258,8 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.btn_up.setToolTip("Go to Parent Directory (Alt+Up)")
         self.btn_up.setShortcut(
             QtGui.QKeySequence(
-                QtCore.Qt.KeyboardModifier.AltModifier.value | QtCore.Qt.Key.Key_Up.value
+                QtCore.Qt.KeyboardModifier.AltModifier.value
+                | QtCore.Qt.Key.Key_Up.value
             )
         )
         self.btn_up.clicked.connect(self.go_up_directory)
@@ -1157,6 +1333,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         )
         self.file_tree_widget.itemDoubleClicked.connect(self.handle_item_double_click)
         self.file_tree_widget.itemExpanded.connect(self.populate_children)
+        self.file_tree_widget.itemChanged.connect(self.handle_check_change)
         self.file_tree_widget.setAlternatingRowColors(True)
         main_layout.addWidget(self.file_tree_widget)
 
@@ -1336,7 +1513,11 @@ class FileConcatenator(QtWidgets.QMainWindow):
     ) -> QtWidgets.QTreeWidgetItem:
         """Adds a directory node to the tree, with a dummy child to make it expandable."""
         node = QtWidgets.QTreeWidgetItem([path.name])
-        node.setFlags(node.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
+        node.setFlags(
+            node.flags()
+            | QtCore.Qt.ItemFlag.ItemIsUserCheckable
+            | QtCore.Qt.ItemFlag.ItemIsAutoTristate
+        )
         node.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
         node.setData(0, self.PATH_ROLE, path)
         node.setIcon(
@@ -1387,11 +1568,29 @@ class FileConcatenator(QtWidgets.QMainWindow):
         ):
             return  # Already populated
 
+        blocked = self.file_tree_widget.signalsBlocked()
+        self.file_tree_widget.blockSignals(True)
+
         item.takeChildren()  # Remove the dummy child
 
         path: Path | None = item.data(0, self.PATH_ROLE)
-        if path and path.is_dir():
+        if path and os.path.isdir(
+            path
+        ):  # Use os.path.isdir to follow symlinks if necessary
             self.populate_directory(path, item)
+
+        state = item.checkState(0)
+        if state != QtCore.Qt.CheckState.PartiallyChecked:
+            self._set_children_check_state(item, state)
+        self._update_parent_check_state(item)
+
+        self.file_tree_widget.blockSignals(blocked)
+
+        # Manually propagate up
+        parent = item.parent()
+        while parent:
+            self._update_parent_check_state(parent)
+            parent = parent.parent()
 
     def populate_directory(
         self, directory: Path, parent_item: Optional[QtWidgets.QTreeWidgetItem]
@@ -1407,7 +1606,9 @@ class FileConcatenator(QtWidgets.QMainWindow):
                 try:
                     resolved = item_path.resolve()
                     if not str(resolved).startswith(str(self.working_dir.resolve())):
-                        logging.warning(f"Rejected path outside project root: {resolved}")
+                        logging.warning(
+                            f"Rejected path outside project root: {resolved}"
+                        )
                         continue
                 except Exception as e:
                     logging.warning(f"Error resolving path {item_path}: {e}")
@@ -1446,12 +1647,14 @@ class FileConcatenator(QtWidgets.QMainWindow):
 
                 entries.append((entry, item_path))
 
-            entries.sort(key=lambda x: (not x[0].is_dir(), x[0].name.lower()))
+            entries.sort(
+                key=lambda x: (not x[0].is_dir(follow_symlinks=True), x[0].name.lower())
+            )
 
             for entry, item_path in entries:
-                if entry.is_dir():
+                if entry.is_dir(follow_symlinks=True):
                     self.add_dir_node(parent_item, item_path)
-                elif entry.is_file():
+                elif entry.is_file(follow_symlinks=True):
                     if not (
                         selected_exts or selected_names or handle_other
                     ) or matches_file_type(
@@ -1480,14 +1683,16 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.ignore_spec = load_ignore_patterns(self.working_dir)
         self.populate_file_list()
 
-    def handle_item_double_click(self, item: QtWidgets.QTreeWidgetItem, column: int) -> None:
+    def handle_item_double_click(
+        self, item: QtWidgets.QTreeWidgetItem, column: int
+    ) -> None:
         """Navigate into directory."""
         if self.is_generating:
             return
         path_data = item.data(0, self.PATH_ROLE)
         if path_data and isinstance(path_data, Path):
             try:
-                st = path_data.lstat()
+                st = os.stat(path_data)
                 if stat.S_ISDIR(st.st_mode):
                     _ = list(os.scandir(path_data))
                     self.working_dir = path_data.resolve()
@@ -1577,9 +1782,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         for i in range(self.file_tree_widget.topLevelItemCount()):
             item = self.file_tree_widget.topLevelItem(i)
             if item is not None:
-                self._set_item_checked_recursive(
-                    item, check_state
-                )
+                self._set_item_checked_recursive(item, check_state)
 
     def _set_item_checked_recursive(
         self, item: QtWidgets.QTreeWidgetItem, check_state: QtCore.Qt.CheckState
@@ -1592,6 +1795,48 @@ class FileConcatenator(QtWidgets.QMainWindow):
             if child is not None:
                 self._set_item_checked_recursive(child, check_state)
 
+    def handle_check_change(self, item: QtWidgets.QTreeWidgetItem, column: int) -> None:
+        if column != 0:
+            return
+        state = item.checkState(0)
+        if state != QtCore.Qt.CheckState.PartiallyChecked:
+            self._set_children_check_state(item, state)
+        parent = item.parent()
+        while parent:
+            self._update_parent_check_state(parent)
+            parent = parent.parent()
+
+    def _set_children_check_state(
+        self, item: QtWidgets.QTreeWidgetItem, state: QtCore.Qt.CheckState
+    ) -> None:
+        for i in range(item.childCount()):
+            child = item.child(i)
+            if child.flags() & QtCore.Qt.ItemFlag.ItemIsUserCheckable:
+                child.setCheckState(0, state)
+            self._set_children_check_state(child, state)
+
+    def _update_parent_check_state(self, parent: QtWidgets.QTreeWidgetItem) -> None:
+        checked_count = 0
+        total_count = 0
+        has_partial = False
+        for i in range(parent.childCount()):
+            child = parent.child(i)
+            if child.flags() & QtCore.Qt.ItemFlag.ItemIsUserCheckable:
+                total_count += 1
+                child_state = child.checkState(0)
+                if child_state == QtCore.Qt.CheckState.Checked:
+                    checked_count += 1
+                elif child_state == QtCore.Qt.CheckState.PartiallyChecked:
+                    has_partial = True
+        if total_count == 0:
+            return
+        if checked_count == total_count and not has_partial:
+            parent.setCheckState(0, QtCore.Qt.CheckState.Checked)
+        elif checked_count == 0 and not has_partial:
+            parent.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
+        else:
+            parent.setCheckState(0, QtCore.Qt.CheckState.PartiallyChecked)
+
     def _collect_selected_paths(self, item: QtWidgets.QTreeWidgetItem) -> List[Path]:
         """Recursively collect all checked file paths from the tree, rejecting paths outside project root."""
         paths: List[Path] = []
@@ -1602,15 +1847,22 @@ class FileConcatenator(QtWidgets.QMainWindow):
                 # Reject if outside project root using proper path comparison
                 try:
                     if not resolved.is_relative_to(self.working_dir.resolve()):
-                        logging.warning(f"Rejected path outside project root: {resolved}")
+                        logging.warning(
+                            f"Rejected path outside project root: {resolved}"
+                        )
                         return paths
                 except AttributeError:
                     # Fallback for Python < 3.9 - use Path.parts for comparison
                     try:
                         working_dir_parts = self.working_dir.resolve().parts
                         resolved_parts = resolved.parts
-                        if resolved_parts[:len(working_dir_parts)] != working_dir_parts:
-                            logging.warning(f"Rejected path outside project root (fallback): {resolved}")
+                        if (
+                            resolved_parts[: len(working_dir_parts)]
+                            != working_dir_parts
+                        ):
+                            logging.warning(
+                                f"Rejected path outside project root (fallback): {resolved}"
+                            )
                             return paths
                     except Exception as e:
                         logging.warning(f"Error in path comparison: {e}")
@@ -1662,17 +1914,16 @@ class FileConcatenator(QtWidgets.QMainWindow):
             all_known_filenames=self.ALL_FILENAMES,
             handle_other_text_files=handle_other,
             ignore_spec=self.ignore_spec,
-            search_text=self.search_entry.text()
+            global_ignore_spec=self.global_ignore_spec,
+            search_text=self.search_entry.text(),
         )
-        
+
         generation_options = GenerationOptions(
-            selected_paths=selected_paths,
-            base_directory=self.working_dir
+            selected_paths=selected_paths, base_directory=self.working_dir
         )
-        
+
         worker_config = WorkerConfig(
-            filter_settings=filter_settings,
-            generation_options=generation_options
+            filter_settings=filter_settings, generation_options=generation_options
         )
 
         self.worker_thread = QtCore.QThread()
@@ -1724,7 +1975,9 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.progress_bar.setFormat(message + " %p%")
 
     @QtCore.pyqtSlot(str, str)
-    def handle_generation_finished(self, temp_file_path: str, error_message: str) -> None:
+    def handle_generation_finished(
+        self, temp_file_path: str, error_message: str
+    ) -> None:
         """Slot to handle the finished signal from the worker."""
         logging.info(f"Generator worker finished. Error: '{error_message}'")
 
@@ -1753,9 +2006,9 @@ class FileConcatenator(QtWidgets.QMainWindow):
             except Exception as e:
                 error_message = str(e)
                 QtWidgets.QMessageBox.critical(
-                    self, 
-                    "Error Saving File", 
-                    f"Failed to save output file: {error_message}"
+                    self,
+                    "Error Saving File",
+                    f"Failed to save output file: {error_message}",
                 )
 
     def generation_cleanup(self) -> None:
@@ -1833,7 +2086,12 @@ class FileConcatenator(QtWidgets.QMainWindow):
         logging.info(f"Save dialog defaulting to: {default_path}")
 
         # Make the dialog application modal
-        file_dialog = QtWidgets.QFileDialog(self, "Save Concatenated File", str(default_path), "Markdown Files (*.md);;Text Files (*.txt);;All Files (*)")
+        file_dialog = QtWidgets.QFileDialog(
+            self,
+            "Save Concatenated File",
+            str(default_path),
+            "Markdown Files (*.md);;Text Files (*.txt);;All Files (*)",
+        )
         file_dialog.setFileMode(QtWidgets.QFileDialog.FileMode.AnyFile)
         file_dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptMode.AcceptSave)
         file_dialog.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
@@ -1863,7 +2121,9 @@ class FileConcatenator(QtWidgets.QMainWindow):
                 return
 
             # Write header to the output file
-            with atomic_write(output_path, mode="w", encoding="utf-8", overwrite=True) as f:
+            with atomic_write(
+                output_path, mode="w", encoding="utf-8", overwrite=True
+            ) as f:
                 f.write(f"# Concatenated Files from: {self.working_dir}\n")
                 f.write(
                     f"# Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
@@ -1884,9 +2144,9 @@ class FileConcatenator(QtWidgets.QMainWindow):
 
                 # Stream the content from the temporary file
                 try:
-                    with open(temp_file_path, 'r', encoding='utf-8') as temp_file:
+                    with open(temp_file_path, "r", encoding="utf-8") as temp_file:
                         shutil.copyfileobj(temp_file, f)
-                    
+
                     f.write("\n" + "=" * 60 + "\n")
                     f.write("END OF CONCATENATED CONTENT\n")
                     f.write("=" * 60 + "\n")
@@ -1899,7 +2159,9 @@ class FileConcatenator(QtWidgets.QMainWindow):
                     try:
                         os.unlink(temp_file_path)
                     except OSError as e:
-                        logging.warning(f"Could not remove temporary file {temp_file_path}: {e}")
+                        logging.warning(
+                            f"Could not remove temporary file {temp_file_path}: {e}"
+                        )
 
             # Success message with file location
             QtWidgets.QMessageBox.information(
@@ -1950,7 +2212,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
 if __name__ == "__main__":
     # Initialize application settings
     app_settings = AppSettings()
-    
+
     QtCore.QCoreApplication.setApplicationName(app_settings.window_title)
     QtCore.QCoreApplication.setOrganizationName(app_settings.organization_name)
     QtCore.QCoreApplication.setApplicationVersion(app_settings.application_version)
