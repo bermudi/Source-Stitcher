@@ -8,7 +8,7 @@ import stat
 import traceback
 from dataclasses import dataclass
 from typing import Optional, Dict, List, Set, Tuple
-from atomicwrites import atomic_write
+from atomicwrites import atomic_write  # type: ignore
 
 # PyQt6 imports
 from PyQt6 import QtCore, QtWidgets, QtGui
@@ -92,7 +92,7 @@ def load_ignore_patterns(directory: Path) -> pathspec.PathSpec | None:
     if patterns:
         try:
             return pathspec.PathSpec.from_lines(
-                pathspec.patterns.GitWildMatchPattern, patterns
+                pathspec.patterns.GitWildMatchPattern, patterns  # type: ignore[attr-defined]
             )
         except Exception as e:
             logging.error(f"Error parsing ignore patterns from {gitignore_path}: {e}")
@@ -227,9 +227,10 @@ def is_likely_text_file(filepath: Path) -> bool:
     return False
 
 
-def build_filter_sets(ext_dict: dict[str, list[str]]) -> tuple[set[str], set[str]]:
+def build_filter_sets(ext_dict: Dict[str, List[str]]) -> Tuple[Set[str], Set[str]]:
     """Compiles all known extensions and filenames into sets for quick lookup."""
-    by_ext, by_name = set(), set()
+    by_ext: Set[str] = set()
+    by_name: Set[str] = set()
     for exts in ext_dict.values():
         for e in exts:
             (by_ext if e.startswith(".") else by_name).add(e.lower())
@@ -238,10 +239,10 @@ def build_filter_sets(ext_dict: dict[str, list[str]]) -> tuple[set[str], set[str
 
 def matches_file_type(
     filepath: Path,
-    selected_exts: set[str],
-    selected_names: set[str],
-    all_exts: set[str],
-    all_names: set[str],
+    selected_exts: Set[str],
+    selected_names: Set[str],
+    all_exts: Set[str],
+    all_names: Set[str],
     handle_other: bool,
 ) -> bool:
     """Check if a file path matches the compiled filter sets."""
@@ -278,7 +279,7 @@ class GeneratorWorker(QtCore.QObject):
         self.config = config
         self._is_cancelled = False
 
-    def cancel(self):
+    def cancel(self) -> None:
         """Signals the worker to stop processing."""
         self._is_cancelled = True
         logging.info("Cancellation requested for worker.")
@@ -597,7 +598,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
     PATH_ROLE = QtCore.Qt.ItemDataRole.UserRole + 1
     LANGUAGE_ROLE = QtCore.Qt.ItemDataRole.UserRole + 2
 
-    def __init__(self, working_dir: Path = None) -> None:
+    def __init__(self, working_dir: Optional[Path] = None) -> None:
         super().__init__()
         self.initial_base_dir = (working_dir or Path.cwd()).resolve()
         self.working_dir = self.initial_base_dir
@@ -607,13 +608,13 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.ignore_spec = load_ignore_patterns(self.working_dir)
         self.icon_provider = QtWidgets.QFileIconProvider()
 
-        self.worker_thread = None
-        self.worker = None
+        self.worker_thread: Optional[QtCore.QThread] = None
+        self.worker: Optional[GeneratorWorker] = None
         self.is_generating = False
 
         # Updated comprehensive language extensions
         # Updated comprehensive language extensions
-        self.language_extensions = {
+        self.language_extensions: Dict[str, List[str]] = {
             "Python": [
                 ".py",
                 ".pyw",
@@ -859,13 +860,15 @@ class FileConcatenator(QtWidgets.QMainWindow):
         # --- Top Layout ---
         top_nav_layout = QtWidgets.QHBoxLayout()
         self.btn_up = QtWidgets.QPushButton()
-        self.btn_up.setIcon(
-            self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_ArrowUp)
-        )
+        style = self.style()
+        if style is not None:
+            self.btn_up.setIcon(
+                style.standardIcon(QtWidgets.QStyle.StandardPixmap.SP_ArrowUp)
+            )
         self.btn_up.setToolTip("Go to Parent Directory (Alt+Up)")
         self.btn_up.setShortcut(
             QtGui.QKeySequence(
-                QtCore.Qt.KeyboardModifier.AltModifier | QtCore.Qt.Key.Key_Up
+                QtCore.Qt.KeyboardModifier.AltModifier.value | QtCore.Qt.Key.Key_Up.value
             )
         )
         self.btn_up.clicked.connect(self.go_up_directory)
@@ -973,13 +976,15 @@ class FileConcatenator(QtWidgets.QMainWindow):
 
         self.update_ui_state()
 
-    def get_selected_filter_sets(self) -> tuple[set[str], set[str], bool]:
+    def get_selected_filter_sets(self) -> Tuple[Set[str], Set[str], bool]:
         """Get the compiled sets of selected extensions and filenames."""
-        selected_exts, selected_names = set(), set()
+        selected_exts: Set[str] = set()
+        selected_names: Set[str] = set()
         handle_other = False
 
         for i in range(self.language_list_widget.count()):
             item = self.language_list_widget.item(i)
+            assert item is not None
             if item.checkState() == QtCore.Qt.CheckState.Checked:
                 language_name = item.data(self.LANGUAGE_ROLE)
                 if language_name == "Other Text Files":
@@ -994,35 +999,38 @@ class FileConcatenator(QtWidgets.QMainWindow):
 
         return selected_exts, selected_names, handle_other
 
-    def get_selected_language_names(self) -> list[str]:
+    def get_selected_language_names(self) -> List[str]:
         """Get names of selected language types for display purposes."""
-        selected_names = []
+        selected_names: List[str] = []
 
         for i in range(self.language_list_widget.count()):
             item = self.language_list_widget.item(i)
+            assert item is not None
             if item.checkState() == QtCore.Qt.CheckState.Checked:
                 language_name = item.data(self.LANGUAGE_ROLE)
                 selected_names.append(language_name)
 
         return selected_names
 
-    def select_all_languages(self):
+    def select_all_languages(self) -> None:
         """Select all language types."""
         if self.is_generating:
             return
         for i in range(self.language_list_widget.count()):
             item = self.language_list_widget.item(i)
+            assert item is not None
             item.setCheckState(QtCore.Qt.CheckState.Checked)
 
-    def deselect_all_languages(self):
+    def deselect_all_languages(self) -> None:
         """Deselect all language types."""
         if self.is_generating:
             return
         for i in range(self.language_list_widget.count()):
             item = self.language_list_widget.item(i)
+            assert item is not None
             item.setCheckState(QtCore.Qt.CheckState.Unchecked)
 
-    def select_code_only(self):
+    def select_code_only(self) -> None:
         """Select only programming language categories."""
         if self.is_generating:
             return
@@ -1042,13 +1050,14 @@ class FileConcatenator(QtWidgets.QMainWindow):
         }
         for i in range(self.language_list_widget.count()):
             item = self.language_list_widget.item(i)
+            assert item is not None
             language_name = item.data(self.LANGUAGE_ROLE)
             if language_name in code_categories:
                 item.setCheckState(QtCore.Qt.CheckState.Checked)
             else:
                 item.setCheckState(QtCore.Qt.CheckState.Unchecked)
 
-    def select_docs_config(self):
+    def select_docs_config(self) -> None:
         """Select documentation and configuration categories."""
         if self.is_generating:
             return
@@ -1062,6 +1071,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         }
         for i in range(self.language_list_widget.count()):
             item = self.language_list_widget.item(i)
+            assert item is not None
             language_name = item.data(self.LANGUAGE_ROLE)
             if language_name in docs_config_categories:
                 item.setCheckState(QtCore.Qt.CheckState.Checked)
@@ -1085,7 +1095,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         is_root = self.working_dir.parent == self.working_dir
         self.btn_up.setEnabled(not is_root and not self.is_generating)
 
-    def set_controls_enabled(self, enabled: bool):
+    def set_controls_enabled(self, enabled: bool) -> None:
         """Enable/disable controls during generation."""
         self.btn_generate.setEnabled(enabled)
         self.btn_select_all.setEnabled(enabled)
@@ -1107,7 +1117,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.populate_directory(self.working_dir, None)
 
     def add_dir_node(
-        self, parent_item: QtWidgets.QTreeWidgetItem | None, path: Path
+        self, parent_item: Optional[QtWidgets.QTreeWidgetItem], path: Path
     ) -> QtWidgets.QTreeWidgetItem:
         """Adds a directory node to the tree, with a dummy child to make it expandable."""
         node = QtWidgets.QTreeWidgetItem([path.name])
@@ -1128,7 +1138,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         return node
 
     def add_file_node(
-        self, parent_item: QtWidgets.QTreeWidgetItem | None, path: Path
+        self, parent_item: Optional[QtWidgets.QTreeWidgetItem], path: Path
     ) -> None:
         """Adds a file node to the tree."""
         try:
@@ -1154,7 +1164,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
             self.file_tree_widget.addTopLevelItem(item)
 
     @QtCore.pyqtSlot(QtWidgets.QTreeWidgetItem)
-    def populate_children(self, item: QtWidgets.QTreeWidgetItem):
+    def populate_children(self, item: QtWidgets.QTreeWidgetItem) -> None:
         """Populates the children of a directory item when it's expanded."""
         # Check if it's the first expansion (dummy child is present)
         if not (
@@ -1169,8 +1179,8 @@ class FileConcatenator(QtWidgets.QMainWindow):
             self.populate_directory(path, item)
 
     def populate_directory(
-        self, directory: Path, parent_item: QtWidgets.QTreeWidgetItem | None
-    ):
+        self, directory: Path, parent_item: Optional[QtWidgets.QTreeWidgetItem]
+    ) -> None:
         """Populate the tree widget with files and directories for one level, rejecting paths outside root."""
         selected_exts, selected_names, handle_other = self.get_selected_filter_sets()
         search_text = self.search_entry.text().lower().strip()
@@ -1259,7 +1269,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.ignore_spec = load_ignore_patterns(self.working_dir)
         self.populate_file_list()
 
-    def handle_item_double_click(self, item: QtWidgets.QTreeWidgetItem, column: int):
+    def handle_item_double_click(self, item: QtWidgets.QTreeWidgetItem, column: int) -> None:
         """Navigate into directory."""
         if self.is_generating:
             return
@@ -1300,7 +1310,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
                     f"Could not open directory:\n{path_data.name}\n\n{e}",
                 )
 
-    def go_up_directory(self):
+    def go_up_directory(self) -> None:
         """Navigate up."""
         if self.is_generating:
             return
@@ -1348,28 +1358,32 @@ class FileConcatenator(QtWidgets.QMainWindow):
             return
         self._set_all_items_checked(False)
 
-    def _set_all_items_checked(self, checked: bool):
+    def _set_all_items_checked(self, checked: bool) -> None:
         """Recursively set the checked state of all items."""
         check_state = (
             QtCore.Qt.CheckState.Checked if checked else QtCore.Qt.CheckState.Unchecked
         )
         for i in range(self.file_tree_widget.topLevelItemCount()):
-            self._set_item_checked_recursive(
-                self.file_tree_widget.topLevelItem(i), check_state
-            )
+            item = self.file_tree_widget.topLevelItem(i)
+            if item is not None:
+                self._set_item_checked_recursive(
+                    item, check_state
+                )
 
     def _set_item_checked_recursive(
         self, item: QtWidgets.QTreeWidgetItem, check_state: QtCore.Qt.CheckState
-    ):
+    ) -> None:
         """Recursively set the checked state of an item and its children."""
         if item.flags() & QtCore.Qt.ItemFlag.ItemIsUserCheckable:
             item.setCheckState(0, check_state)
         for i in range(item.childCount()):
-            self._set_item_checked_recursive(item.child(i), check_state)
+            child = item.child(i)
+            if child is not None:
+                self._set_item_checked_recursive(child, check_state)
 
-    def _collect_selected_paths(self, item: QtWidgets.QTreeWidgetItem) -> list[Path]:
+    def _collect_selected_paths(self, item: QtWidgets.QTreeWidgetItem) -> List[Path]:
         """Recursively collect all checked file paths from the tree, rejecting paths outside project root."""
-        paths = []
+        paths: List[Path] = []
         item_path = item.data(0, self.PATH_ROLE)
         if item_path and isinstance(item_path, Path):
             try:
@@ -1386,7 +1400,8 @@ class FileConcatenator(QtWidgets.QMainWindow):
             else:
                 for i in range(item.childCount()):
                     child = item.child(i)
-                    paths.extend(self._collect_selected_paths(child))
+                    if child is not None:
+                        paths.extend(self._collect_selected_paths(child))
         return paths
 
     def start_generate_file(self) -> None:
@@ -1439,6 +1454,8 @@ class FileConcatenator(QtWidgets.QMainWindow):
 
         self.worker_thread = QtCore.QThread()
         self.worker = GeneratorWorker(worker_config)
+        assert self.worker is not None
+        assert self.worker_thread is not None
         self.worker.moveToThread(self.worker_thread)
 
         self.worker.pre_count_finished.connect(self.handle_pre_count)
@@ -1454,16 +1471,19 @@ class FileConcatenator(QtWidgets.QMainWindow):
         logging.info("Starting generator thread...")
         self.worker_thread.start()
 
-    def _collect_selected_paths_recursive(self) -> list[Path]:
+    def _collect_selected_paths_recursive(self) -> List[Path]:
         """Collect all selected paths from the tree widget."""
-        paths = []
+        paths: List[Path] = []
         for i in range(self.file_tree_widget.topLevelItemCount()):
             item = self.file_tree_widget.topLevelItem(i)
-            paths.extend(self._collect_selected_paths(item))
+            if item is not None:
+                paths.extend(self._collect_selected_paths(item))
+            else:
+                logging.warning(f"Null item at index {i} in top level items")
         return paths
 
     @QtCore.pyqtSlot(int)
-    def handle_pre_count(self, total_files: int):
+    def handle_pre_count(self, total_files: int) -> None:
         """Slot to handle the pre_count_finished signal."""
         logging.info(f"Received pre-count: {total_files}")
         self.progress_bar.setMaximum(100)
@@ -1471,17 +1491,17 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.progress_bar.setFormat("%p%")
 
     @QtCore.pyqtSlot(int)
-    def handle_progress_update(self, value: int):
+    def handle_progress_update(self, value: int) -> None:
         """Slot to handle the progress_updated signal."""
         self.progress_bar.setValue(value)
 
     @QtCore.pyqtSlot(str)
-    def handle_status_update(self, message: str):
+    def handle_status_update(self, message: str) -> None:
         """Slot to handle the status_updated signal."""
         self.progress_bar.setFormat(message + " %p%")
 
     @QtCore.pyqtSlot(str, str)
-    def handle_generation_finished(self, result_content: str, error_message: str):
+    def handle_generation_finished(self, result_content: str, error_message: str) -> None:
         """Slot to handle the finished signal from the worker."""
         logging.info(f"Generator worker finished. Error: '{error_message}'")
 
@@ -1507,7 +1527,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         else:
             self.save_generated_file(result_content)
 
-    def generation_cleanup(self):
+    def generation_cleanup(self) -> None:
         """Slot called when the thread finishes, regardless of reason."""
         logging.info("Generator thread finished signal received. Cleaning up.")
         self.worker = None
@@ -1517,7 +1537,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("%p%")
 
-    def cancel_generation(self):
+    def cancel_generation(self) -> None:
         """Requests cancellation of the running worker."""
         if self.worker:
             logging.info("Cancel button clicked. Requesting worker cancellation.")
@@ -1527,7 +1547,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         else:
             logging.warning("Cancel clicked but no worker active.")
 
-    def save_generated_file(self, content: str):
+    def save_generated_file(self, content: str) -> None:
         """Handles the save file dialog and writing the output."""
         # Try to find Desktop, with multiple fallback strategies
         desktop_path = None
@@ -1663,8 +1683,10 @@ class FileConcatenator(QtWidgets.QMainWindow):
             self.progress_bar.setValue(0)
             self.progress_bar.setFormat("%p%")
 
-    def closeEvent(self, event: QtGui.QCloseEvent):
+    def closeEvent(self, event: Optional[QtGui.QCloseEvent]) -> None:
         """Handle window close event, ensuring worker thread is stopped."""
+        if event is None:
+            return
         if self.is_generating and self.worker_thread and self.worker_thread.isRunning():
             reply = QtWidgets.QMessageBox.question(
                 self,
