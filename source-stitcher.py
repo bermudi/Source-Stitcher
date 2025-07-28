@@ -6,6 +6,8 @@ from datetime import datetime
 import pathspec
 import stat
 import traceback
+from dataclasses import dataclass
+from typing import Optional, Dict, List, Set, Tuple
 from atomicwrites import atomic_write
 
 # PyQt6 imports
@@ -16,6 +18,63 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+
+
+# --- Configuration Dataclasses ---
+@dataclass
+class AppSettings:
+    """Application-level settings and configuration."""
+    window_title: str = "SOTA Concatenator"
+    organization_name: str = "YourOrg"
+    application_version: str = "1.5-tree"
+    default_window_width: int = 700
+    default_window_height: int = 650
+    chunk_size_bytes: int = 1024
+    memory_chunk_size_mb: int = 1
+
+
+@dataclass
+class FilterSettings:
+    """File filtering and selection configuration."""
+    selected_extensions: Set[str]
+    selected_filenames: Set[str]
+    all_known_extensions: Set[str]
+    all_known_filenames: Set[str]
+    handle_other_text_files: bool
+    ignore_spec: Optional[pathspec.PathSpec] = None
+    search_text: str = ""
+
+
+@dataclass
+class GenerationOptions:
+    """Options for file generation and processing."""
+    selected_paths: List[Path]
+    base_directory: Path
+    output_format: str = "markdown"
+    include_file_stats: bool = True
+    include_timestamp: bool = True
+    max_file_size_mb: int = 100
+    encoding: str = "utf-8"
+    line_ending: str = "\n"
+
+
+@dataclass
+class UISettings:
+    """User interface configuration and state."""
+    language_list_max_height: int = 140
+    progress_bar_min_width: int = 200
+    enable_alternating_row_colors: bool = True
+    show_file_icons: bool = True
+    auto_expand_directories: bool = False
+
+
+@dataclass
+class WorkerConfig:
+    """Configuration for the background worker thread."""
+    filter_settings: FilterSettings
+    generation_options: GenerationOptions
+    estimated_total_files: int = 0
+    progress_update_interval: int = 10
 
 
 # --- Helper Function for Ignore Patterns ---
@@ -214,26 +273,9 @@ class GeneratorWorker(QtCore.QObject):
     status_updated = QtCore.pyqtSignal(str)
     finished = QtCore.pyqtSignal(str, str)
 
-    def __init__(
-        self,
-        selected_paths: list[Path],
-        base_dir: Path,
-        selected_exts: set[str],
-        selected_names: set[str],
-        all_exts: set[str],
-        all_names: set[str],
-        handle_other: bool,
-        base_ignore_spec: pathspec.PathSpec | None,
-    ):
+    def __init__(self, config: WorkerConfig) -> None:
         super().__init__()
-        self.selected_paths = selected_paths
-        self.base_dir = base_dir
-        self.selected_exts = selected_exts
-        self.selected_names = selected_names
-        self.all_exts = all_exts
-        self.all_names = all_names
-        self.handle_other = handle_other
-        self.base_ignore_spec = base_ignore_spec
+        self.config = config
         self._is_cancelled = False
 
     def cancel(self):
@@ -293,8 +335,8 @@ class GeneratorWorker(QtCore.QObject):
         self,
         dir_path: Path,
         current_dir_ignore_spec: pathspec.PathSpec | None,
-        output_content: list,
-        files_processed_counter: list,
+        output_content: List[str],
+        files_processed_counter: List[int],
     ) -> None:
         """
         Recursively process directory for files, appending to output_content.
@@ -303,7 +345,7 @@ class GeneratorWorker(QtCore.QObject):
         if self._is_cancelled:
             return
 
-        def walk_error_handler(error: OSError):
+        def walk_error_handler(error: OSError) -> None:
             logging.warning(
                 f"Permission/OS error during processing walk below {dir_path}: {error}"
             )
@@ -316,7 +358,7 @@ class GeneratorWorker(QtCore.QObject):
             root_path = Path(root)
 
             try:
-                root_relative_to_base = root_path.relative_to(self.base_dir)
+                root_relative_to_base = root_path.relative_to(self.config.generation_options.base_directory)
                 root_relative_to_current = root_path.relative_to(dir_path)
             except ValueError:
                 logging.warning(
@@ -331,8 +373,8 @@ class GeneratorWorker(QtCore.QObject):
                 for d in original_dirs
                 if not d.startswith(".")
                 and (
-                    not self.base_ignore_spec
-                    or not self.base_ignore_spec.match_file(
+                    not self.config.filter_settings.ignore_spec
+                    or not self.config.filter_settings.ignore_spec.match_file(
                         str(root_relative_to_base / d) + "/"
                     )
                 )
@@ -363,7 +405,7 @@ class GeneratorWorker(QtCore.QObject):
                     continue
 
                 try:
-                    relative_path_to_base = full_path.relative_to(self.base_dir)
+                    relative_path_to_base = full_path.relative_to(self.config.generation_options.base_directory)
                     relative_path_to_current = full_path.relative_to(dir_path)
                 except ValueError:
                     logging.warning(
@@ -372,8 +414,8 @@ class GeneratorWorker(QtCore.QObject):
                     continue
 
                 if (
-                    self.base_ignore_spec
-                    and self.base_ignore_spec.match_file(str(relative_path_to_base))
+                    self.config.filter_settings.ignore_spec
+                    and self.config.filter_settings.ignore_spec.match_file(str(relative_path_to_base))
                 ) or (
                     current_dir_ignore_spec
                     and current_dir_ignore_spec.match_file(
@@ -385,11 +427,11 @@ class GeneratorWorker(QtCore.QObject):
                 # Use the new matching logic
                 if not matches_file_type(
                     full_path,
-                    self.selected_exts,
-                    self.selected_names,
-                    self.all_exts,
-                    self.all_names,
-                    self.handle_other,
+                    self.config.filter_settings.selected_extensions,
+                    self.config.filter_settings.selected_filenames,
+                    self.config.filter_settings.all_known_extensions,
+                    self.config.filter_settings.all_known_filenames,
+                    self.config.filter_settings.handle_other_text_files,
                 ):
                     continue
 
@@ -407,16 +449,16 @@ class GeneratorWorker(QtCore.QObject):
                 files_processed_counter[0] += 1
 
     @QtCore.pyqtSlot()
-    def run(self):
+    def run(self) -> None:
         """Main execution method for the worker thread."""
-        output_content = []
+        output_content: List[str] = []
         error_message = ""
         files_processed_count = 0
 
         # Estimate total files for progress bar. This is a rough guess.
         # A full pre-count is avoided for performance.
         estimated_total_files = 0
-        for path in self.selected_paths:
+        for path in self.config.generation_options.selected_paths:
             if path.is_file():
                 estimated_total_files += 1
             elif path.is_dir():
@@ -438,7 +480,7 @@ class GeneratorWorker(QtCore.QObject):
         self.status_updated.emit("Processing...")
 
         try:
-            for path in self.selected_paths:
+            for path in self.config.generation_options.selected_paths:
                 if self._is_cancelled:
                     break
 
@@ -449,23 +491,23 @@ class GeneratorWorker(QtCore.QObject):
 
                     rel_path_base_str = ""
                     try:
-                        rel_path_base_str = str(path.relative_to(self.base_dir))
+                        rel_path_base_str = str(path.relative_to(self.config.generation_options.base_directory))
                     except ValueError:
                         pass
 
                     if is_regular_file:
-                        if self.base_ignore_spec and self.base_ignore_spec.match_file(
+                        if self.config.filter_settings.ignore_spec and self.config.filter_settings.ignore_spec.match_file(
                             rel_path_base_str
                         ):
                             continue
 
                         if matches_file_type(
                             path,
-                            self.selected_exts,
-                            self.selected_names,
-                            self.all_exts,
-                            self.all_names,
-                            self.handle_other,
+                            self.config.filter_settings.selected_extensions,
+                            self.config.filter_settings.selected_filenames,
+                            self.config.filter_settings.all_known_extensions,
+                            self.config.filter_settings.all_known_filenames,
+                            self.config.filter_settings.handle_other_text_files,
                         ):
                             file_content = self.get_file_content(path)
                             if file_content is not None:
@@ -487,7 +529,7 @@ class GeneratorWorker(QtCore.QObject):
                                     )  # Keep it below 100 until the end
 
                     elif is_regular_dir:
-                        if self.base_ignore_spec and self.base_ignore_spec.match_file(
+                        if self.config.filter_settings.ignore_spec and self.config.filter_settings.ignore_spec.match_file(
                             rel_path_base_str + "/"
                         ):
                             continue
@@ -537,7 +579,7 @@ class GeneratorWorker(QtCore.QObject):
             logging.info(
                 f"Worker finished processing. Total files included: {files_processed_count}"
             )
-            final_content = "\n".join(output_content)
+            final_content = self.config.generation_options.line_ending.join(output_content)
             self.finished.emit(final_content, error_message if error_message else "")
 
         except Exception as e:
@@ -1374,17 +1416,29 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.progress_bar.setMaximum(100)
         self.progress_bar.setFormat("Starting...")
 
-        self.worker_thread = QtCore.QThread()
-        self.worker = GeneratorWorker(
-            selected_paths=selected_paths,
-            base_dir=self.working_dir,
-            selected_exts=selected_exts,
-            selected_names=selected_names,
-            all_exts=self.ALL_EXTENSIONS,
-            all_names=self.ALL_FILENAMES,
-            handle_other=handle_other,
-            base_ignore_spec=self.ignore_spec,
+        # Create configuration objects
+        filter_settings = FilterSettings(
+            selected_extensions=selected_exts,
+            selected_filenames=selected_names,
+            all_known_extensions=self.ALL_EXTENSIONS,
+            all_known_filenames=self.ALL_FILENAMES,
+            handle_other_text_files=handle_other,
+            ignore_spec=self.ignore_spec,
+            search_text=self.search_entry.text()
         )
+        
+        generation_options = GenerationOptions(
+            selected_paths=selected_paths,
+            base_directory=self.working_dir
+        )
+        
+        worker_config = WorkerConfig(
+            filter_settings=filter_settings,
+            generation_options=generation_options
+        )
+
+        self.worker_thread = QtCore.QThread()
+        self.worker = GeneratorWorker(worker_config)
         self.worker.moveToThread(self.worker_thread)
 
         self.worker.pre_count_finished.connect(self.handle_pre_count)
@@ -1634,13 +1688,16 @@ class FileConcatenator(QtWidgets.QMainWindow):
 
 
 if __name__ == "__main__":
-    QtCore.QCoreApplication.setApplicationName("SOTA Concatenator")
-    QtCore.QCoreApplication.setOrganizationName("YourOrg")
-    QtCore.QCoreApplication.setApplicationVersion("1.5-tree")
+    # Initialize application settings
+    app_settings = AppSettings()
+    
+    QtCore.QCoreApplication.setApplicationName(app_settings.window_title)
+    QtCore.QCoreApplication.setOrganizationName(app_settings.organization_name)
+    QtCore.QCoreApplication.setApplicationVersion(app_settings.application_version)
 
     app = QtWidgets.QApplication(sys.argv)
 
-    settings = QtCore.QSettings("YourOrg", "SOTAConcatenator")
+    settings = QtCore.QSettings(app_settings.organization_name, "SOTAConcatenator")
     last_dir = settings.value("last_directory", str(Path.cwd()))
 
     selected_dir = QtWidgets.QFileDialog.getExistingDirectory(
