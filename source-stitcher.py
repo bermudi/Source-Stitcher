@@ -6,6 +6,7 @@ from datetime import datetime
 import pathspec
 import stat
 import traceback
+from atomicwrites import atomic_write
 
 # PyQt6 imports
 from PyQt6 import QtCore, QtWidgets, QtGui
@@ -244,6 +245,7 @@ class GeneratorWorker(QtCore.QObject):
         """
         Safely read the content of a non-binary text file using UTF-8 encoding.
         Returns None if the file is binary, cannot be read, or causes decoding errors.
+        Catches MemoryError and falls back to chunked reading.
         """
         if is_binary_file(filepath):
             logging.warning(
@@ -251,7 +253,14 @@ class GeneratorWorker(QtCore.QObject):
             )
             return None
         try:
-            content = filepath.read_text(encoding="utf-8", errors="strict")
+            try:
+                content = filepath.read_text(encoding="utf-8", errors="strict")
+            except MemoryError:
+                logging.warning(f"MemoryError reading {filepath}, falling back to chunked read.")
+                content = ""
+                with filepath.open("r", encoding="utf-8", errors="strict") as f:
+                    for chunk in iter(lambda: f.read(1024 * 1024), ""):
+                        content += chunk
             if not content.strip():  # Skip empty or whitespace-only files
                 logging.info(f"Skipping empty file: {filepath.name}")
                 return None
@@ -698,19 +707,66 @@ class FileConcatenator(QtWidgets.QMainWindow):
                 ".gitmodules",
                 ".gitkeep",
             ],
-            "Build & Package": [
-                "makefile",
-                ".ninja",
-                ".bazel",
-                ".buck",
-                "build.gradle",
-                "gradle.properties",
-                "composer.json",
-                "cargo.toml",
-                "pipfile",
-                "gemfile",
-                "podfile",
-                "package.json",
+            "Build \u0026 Package": [
+                # ── Cross-language build systems ──────────────────────────────────────
+                "makefile",                       # Make
+                "CMakeLists.txt", ".cmake",       # CMake
+                ".ninja",                         # Ninja
+                ".bazel", ".bzl", "BUILD",        # Bazel / Starlark
+                ".buck",                          # Buck
+                "meson.build", "meson_options.txt",
+                "build.xml", "ivy.xml",           # Ant / Ivy
+                "configure.ac", "configure.in",   # Autotools
+
+                # ── JVM (Gradle / Maven / SBT) ───────────────────────────────────────
+                "build.gradle", "settings.gradle", "gradle.properties", "gradlew",
+                "gradlew.bat",
+                "pom.xml",                        # Maven
+                "build.sbt", ".sbt",              # Scala sbt
+
+                # ── .NET / NuGet ─────────────────────────────────────────────────────
+                ".csproj", ".fsproj", ".vbproj", "packages.config", "nuget.config",
+
+                # ── Swift Package Manager ────────────────────────────────────────────
+                "Package.swift", "Package.resolved",
+
+                # ── Go ───────────────────────────────────────────────────────────────
+                "go.mod", "go.sum", "go.work", "go.work.sum",
+
+                # ── Rust ─────────────────────────────────────────────────────────────
+                "Cargo.toml", "Cargo.lock",
+
+                # ── PHP / Composer ───────────────────────────────────────────────────
+                "composer.json", "composer.lock",
+
+                # ── Ruby / Bundler ───────────────────────────────────────────────────
+                "Gemfile", "Gemfile.lock", "gemfile", "gemfile.lock", "rakefile",
+
+                # ── Python packaging ─────────────────────────────────────────────────
+                "pyproject.toml",                 # PEP 517/518 (Poetry, Hatch, etc.)
+                "Pipfile", "Pipfile.lock",        # Pipenv
+                "poetry.lock",                    # Poetry
+                "requirements.txt",               # classic
+                "requirements-dev.txt", "requirements-test.txt",
+                "setup.py", "setup.cfg",
+                "environment.yml",                # Conda
+
+                # ── JavaScript / TypeScript / Node ecosystem ─────────────────────────
+                # npm
+                "package.json", "package-lock.json", "npm-shrinkwrap.json",
+                # Yarn
+                "yarn.lock", ".yarnrc", ".yarnrc.yml",
+                # pnpm
+                "pnpm-lock.yaml", "pnpm-workspace.yaml", ".pnpmfile.cjs",
+                # bun
+                "bun.lockb",
+                # monorepo / workspace tools
+                "rush.json", "lerna.json",        # Rush, Lerna
+                "turbo.json", "turbo.yaml",       # Turborepo
+
+                # ── Other language-specific lock / build files ───────────────────────
+                "flake.lock", "flake.nix",        # Nix flakes
+                "build.pyz",                      # PEX / Pants
             ],
             "Other Text Files": [
                 "*other*"
@@ -1046,7 +1102,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
     def populate_directory(
         self, directory: Path, parent_item: QtWidgets.QTreeWidgetItem | None
     ):
-        """Populate the tree widget with files and directories for one level."""
+        """Populate the tree widget with files and directories for one level, rejecting paths outside root."""
         selected_exts, selected_names, handle_other = self.get_selected_filter_sets()
         search_text = self.search_entry.text().lower().strip()
 
@@ -1054,6 +1110,14 @@ class FileConcatenator(QtWidgets.QMainWindow):
             entries = []
             for entry in os.scandir(directory):
                 item_path = Path(entry.path)
+                try:
+                    resolved = item_path.resolve()
+                    if not str(resolved).startswith(str(self.working_dir.resolve())):
+                        logging.warning(f"Rejected path outside project root: {resolved}")
+                        continue
+                except Exception as e:
+                    logging.warning(f"Error resolving path {item_path}: {e}")
+                    continue
 
                 # Use relative path for ignore checks if possible
                 try:
@@ -1235,17 +1299,22 @@ class FileConcatenator(QtWidgets.QMainWindow):
             self._set_item_checked_recursive(item.child(i), check_state)
 
     def _collect_selected_paths(self, item: QtWidgets.QTreeWidgetItem) -> list[Path]:
-        """Recursively collect all checked file paths from the tree."""
+        """Recursively collect all checked file paths from the tree, rejecting paths outside project root."""
         paths = []
         item_path = item.data(0, self.PATH_ROLE)
         if item_path and isinstance(item_path, Path):
+            try:
+                resolved = item_path.resolve()
+                # Reject if outside project root
+                if not str(resolved).startswith(str(self.working_dir.resolve())):
+                    logging.warning(f"Rejected path outside project root: {resolved}")
+                    return paths
+            except Exception as e:
+                logging.warning(f"Error resolving path {item_path}: {e}")
+                return paths
             if item.checkState(0) == QtCore.Qt.CheckState.Checked:
-                # If the item is checked, add its path and don't recurse into children.
-                # This allows users to select an entire directory by checking it.
                 paths.append(item_path)
             else:
-                # If the item is unchecked, check its children.
-                # This allows users to select individual files within a directory.
                 for i in range(item.childCount()):
                     child = item.child(i)
                     paths.extend(self._collect_selected_paths(child))
@@ -1431,13 +1500,15 @@ class FileConcatenator(QtWidgets.QMainWindow):
 
         logging.info(f"Save dialog defaulting to: {default_path}")
 
-        file_tuple = QtWidgets.QFileDialog.getSaveFileName(
-            self,
-            "Save Concatenated File",
-            str(default_path),  # This sets both directory and filename
-            "Markdown Files (*.md);;Text Files (*.txt);;All Files (*)",
-        )
-        output_filename = file_tuple[0]
+        # Make the dialog application modal
+        file_dialog = QtWidgets.QFileDialog(self, "Save Concatenated File", str(default_path), "Markdown Files (*.md);;Text Files (*.txt);;All Files (*)")
+        file_dialog.setFileMode(QtWidgets.QFileDialog.FileMode.AnyFile)
+        file_dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptMode.AcceptSave)
+        file_dialog.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
+        if file_dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            output_filename = file_dialog.selectedFiles()[0]
+        else:
+            output_filename = ""
 
         if not output_filename:
             logging.info("Save operation cancelled by user.")
@@ -1459,8 +1530,8 @@ class FileConcatenator(QtWidgets.QMainWindow):
                 )
                 return
 
-            # Create the output content with better header information
-            with open(output_path, "w", encoding="utf-8") as f:
+            # Use atomic write for output
+            with atomic_write(output_path, mode="w", encoding="utf-8", overwrite=True) as f:
                 f.write(f"# Concatenated Files from: {self.working_dir}\n")
                 f.write(
                     f"# Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
