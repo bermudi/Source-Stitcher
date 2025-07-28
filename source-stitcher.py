@@ -570,6 +570,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.is_generating = False
 
         # Updated comprehensive language extensions
+        # Updated comprehensive language extensions
         self.language_extensions = {
             "Python": [
                 ".py",
@@ -709,64 +710,90 @@ class FileConcatenator(QtWidgets.QMainWindow):
             ],
             "Build \u0026 Package": [
                 # ── Cross-language build systems ──────────────────────────────────────
-                "makefile",                       # Make
-                "CMakeLists.txt", ".cmake",       # CMake
-                ".ninja",                         # Ninja
-                ".bazel", ".bzl", "BUILD",        # Bazel / Starlark
-                ".buck",                          # Buck
-                "meson.build", "meson_options.txt",
-                "build.xml", "ivy.xml",           # Ant / Ivy
-                "configure.ac", "configure.in",   # Autotools
-
+                "makefile",  # Make
+                "CMakeLists.txt",
+                ".cmake",  # CMake
+                ".ninja",  # Ninja
+                ".bazel",
+                ".bzl",
+                "BUILD",  # Bazel / Starlark
+                ".buck",  # Buck
+                "meson.build",
+                "meson_options.txt",
+                "build.xml",
+                "ivy.xml",  # Ant / Ivy
+                "configure.ac",
+                "configure.in",  # Autotools
                 # ── JVM (Gradle / Maven / SBT) ───────────────────────────────────────
-                "build.gradle", "settings.gradle", "gradle.properties", "gradlew",
+                "build.gradle",
+                "settings.gradle",
+                "gradle.properties",
+                "gradlew",
                 "gradlew.bat",
-                "pom.xml",                        # Maven
-                "build.sbt", ".sbt",              # Scala sbt
-
+                "pom.xml",  # Maven
+                "build.sbt",
+                ".sbt",  # Scala sbt
                 # ── .NET / NuGet ─────────────────────────────────────────────────────
-                ".csproj", ".fsproj", ".vbproj", "packages.config", "nuget.config",
-
+                ".csproj",
+                ".fsproj",
+                ".vbproj",
+                "packages.config",
+                "nuget.config",
                 # ── Swift Package Manager ────────────────────────────────────────────
-                "Package.swift", "Package.resolved",
-
+                "Package.swift",
+                "Package.resolved",
                 # ── Go ───────────────────────────────────────────────────────────────
-                "go.mod", "go.sum", "go.work", "go.work.sum",
-
+                "go.mod",
+                "go.sum",
+                "go.work",
+                "go.work.sum",
                 # ── Rust ─────────────────────────────────────────────────────────────
-                "Cargo.toml", "Cargo.lock",
-
+                "Cargo.toml",
+                "Cargo.lock",
                 # ── PHP / Composer ───────────────────────────────────────────────────
-                "composer.json", "composer.lock",
-
+                "composer.json",
+                "composer.lock",
                 # ── Ruby / Bundler ───────────────────────────────────────────────────
-                "Gemfile", "Gemfile.lock", "gemfile", "gemfile.lock", "rakefile",
-
+                "Gemfile",
+                "Gemfile.lock",
+                "gemfile",
+                "gemfile.lock",
+                "rakefile",
                 # ── Python packaging ─────────────────────────────────────────────────
-                "pyproject.toml",                 # PEP 517/518 (Poetry, Hatch, etc.)
-                "Pipfile", "Pipfile.lock",        # Pipenv
-                "poetry.lock",                    # Poetry
-                "requirements.txt",               # classic
-                "requirements-dev.txt", "requirements-test.txt",
-                "setup.py", "setup.cfg",
-                "environment.yml",                # Conda
-
+                "pyproject.toml",  # PEP 517/518 (Poetry, Hatch, etc.)
+                "Pipfile",
+                "Pipfile.lock",  # Pipenv
+                "poetry.lock",  # Poetry
+                "requirements.txt",  # classic
+                "requirements-dev.txt",
+                "requirements-test.txt",
+                "setup.py",
+                "setup.cfg",
+                "environment.yml",  # Conda
                 # ── JavaScript / TypeScript / Node ecosystem ─────────────────────────
                 # npm
-                "package.json", "package-lock.json", "npm-shrinkwrap.json",
+                "package.json",
+                "package-lock.json",
+                "npm-shrinkwrap.json",
                 # Yarn
-                "yarn.lock", ".yarnrc", ".yarnrc.yml",
+                "yarn.lock",
+                ".yarnrc",
+                ".yarnrc.yml",
                 # pnpm
-                "pnpm-lock.yaml", "pnpm-workspace.yaml", ".pnpmfile.cjs",
+                "pnpm-lock.yaml",
+                "pnpm-workspace.yaml",
+                ".pnpmfile.cjs",
                 # bun
                 "bun.lockb",
                 # monorepo / workspace tools
-                "rush.json", "lerna.json",        # Rush, Lerna
-                "turbo.json", "turbo.yaml",       # Turborepo
-
+                "rush.json",
+                "lerna.json",  # Rush, Lerna
+                "turbo.json",
+                "turbo.yaml",  # Turborepo
                 # ── Other language-specific lock / build files ───────────────────────
-                "flake.lock", "flake.nix",        # Nix flakes
-                "build.pyz",                      # PEX / Pants
+                "flake.lock",
+                "flake.nix",  # Nix flakes
+                "build.pyz",  # PEX / Pants
             ],
             "Other Text Files": [
                 "*other*"
