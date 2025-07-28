@@ -54,8 +54,23 @@ class GenerationOptions:
     include_file_stats: bool = True
     include_timestamp: bool = True
     max_file_size_mb: int = 100
-    encoding: str = "utf-8"
+    # List of encodings to try in order, with fallbacks
+    encodings: List[str] = None
+    # Default encoding to use if none specified
+    default_encoding: str = "utf-8"
     line_ending: str = "\n"
+    
+    def __post_init__(self):
+        # Set default encodings if not provided
+        if self.encodings is None:
+            self.encodings = [
+                'utf-8',          # Most common encoding for modern text files
+                'utf-8-sig',      # UTF-8 with BOM
+                'latin-1',        # Also known as ISO-8859-1, common in Western Europe
+                'iso-8859-1',     # ISO Latin 1
+                'cp1252',         # Windows-1252, common on Windows systems
+                'ascii',          # Basic ASCII
+            ]
 
 
 @dataclass
@@ -286,7 +301,7 @@ class GeneratorWorker(QtCore.QObject):
 
     def get_file_content(self, filepath: Path) -> str | None:
         """
-        Safely read the content of a non-binary text file using UTF-8 encoding.
+        Safely read the content of a non-binary text file, trying multiple encodings.
         Returns None if the file is binary, cannot be read, or causes decoding errors.
         Catches MemoryError and falls back to chunked reading.
         """
@@ -295,42 +310,51 @@ class GeneratorWorker(QtCore.QObject):
                 f"Skipping binary file detected during read: {filepath.name}"
             )
             return None
-        try:
+            
+        # Get the list of encodings to try from config, or use default
+        encodings = self.config.generation_options.encodings or [self.config.generation_options.default_encoding]
+        
+        # Track the last exception for better error reporting
+        last_error = None
+        
+        for encoding in encodings:
             try:
-                content = filepath.read_text(encoding="utf-8", errors="strict")
-            except MemoryError:
-                logging.warning(f"MemoryError reading {filepath}, falling back to chunked read.")
-                content = ""
-                with filepath.open("r", encoding="utf-8", errors="strict") as f:
-                    for chunk in iter(lambda: f.read(1024 * 1024), ""):
-                        content += chunk
-            if not content.strip():  # Skip empty or whitespace-only files
-                logging.info(f"Skipping empty file: {filepath.name}")
+                try:
+                    # Try reading the file with the current encoding
+                    content = filepath.read_text(encoding=encoding, errors='strict')
+                except MemoryError:
+                    logging.warning(f"MemoryError reading {filepath}, falling back to chunked read with {encoding}.")
+                    content = ""
+                    with filepath.open("r", encoding=encoding, errors='strict') as f:
+                        for chunk in iter(lambda: f.read(1024 * 1024), ""):
+                            content += chunk
+                
+                # If we get here, the file was successfully read with this encoding
+                if not content.strip():  # Skip empty or whitespace-only files
+                    logging.info(f"Skipping empty file: {filepath.name}")
+                    return None
+                    
+                # Log which encoding worked for this file
+                if encoding.lower() != 'utf-8':
+                    logging.info(f"Successfully read {filepath.name} with {encoding} encoding")
+                    
+                return content
+                
+            except UnicodeDecodeError as e:
+                last_error = f"Failed to decode with {encoding}: {e}"
+                continue  # Try the next encoding
+                
+            except (PermissionError, FileNotFoundError, OSError) as e:
+                # These errors are not encoding-related, so we can stop trying
+                logging.warning(f"Error reading {filepath.name}: {e}")
                 return None
-            return content
-        except UnicodeDecodeError:
-            logging.warning(
-                f"Skipping file due to UTF-8 decoding error: {filepath.name}"
-            )
-            return None
-        except PermissionError:
-            logging.warning(f"Skipping file due to permission error: {filepath.name}")
-            return None
-        except FileNotFoundError:
-            logging.warning(
-                f"Skipping file as it was not found (possibly deleted?): {filepath.name}"
-            )
-            return None
-        except OSError as e:
-            logging.warning(
-                f"Skipping file due to OS error during read: {filepath.name} ({e})"
-            )
-            return None
-        except Exception as e:
-            logging.error(
-                f"Unexpected error reading file {filepath}: {e}", exc_info=True
-            )
-            return None
+                
+        # If we get here, all encodings failed
+        logging.warning(
+            f"Skipping file {filepath.name} - could not decode with any encoding. "
+            f"Last error: {last_error}"
+        )
+        return None
 
     def process_directory_recursive(
         self,
