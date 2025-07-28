@@ -357,6 +357,113 @@ class GeneratorWorker(QtCore.QObject):
         )
         return None
 
+    def count_directory_recursive(
+        self,
+        dir_path: Path,
+        current_dir_ignore_spec: pathspec.PathSpec | None,
+    ) -> int:
+        """
+        Recursively count matching files in the directory, respecting filters and ignore patterns.
+        """
+        count = 0
+
+        def walk_error_handler(error: OSError) -> None:
+            logging.warning(
+                f"Permission/OS error during count walk below {dir_path}: {error}"
+            )
+
+        for root, dirs, files in os.walk(
+            dir_path, topdown=True, onerror=walk_error_handler, followlinks=False
+        ):
+            if self._is_cancelled:
+                return count
+            root_path = Path(root)
+
+            try:
+                root_relative_to_base = root_path.relative_to(self.config.generation_options.base_directory)
+                root_relative_to_current = root_path.relative_to(dir_path)
+            except ValueError:
+                logging.warning(
+                    f"Count: Could not make path relative during walk: {root_path}. Skipping subtree."
+                )
+                dirs[:] = []
+                continue
+
+            original_dirs = list(dirs)
+            dirs[:] = [
+                d
+                for d in original_dirs
+                if not d.startswith(".")
+                and (
+                    not self.config.filter_settings.ignore_spec
+                    or not self.config.filter_settings.ignore_spec.match_file(
+                        str(root_relative_to_base / d) + "/"
+                    )
+                )
+                and (
+                    not current_dir_ignore_spec
+                    or not current_dir_ignore_spec.match_file(
+                        str(root_relative_to_current / d) + "/"
+                    )
+                )
+            ]
+
+            for file_name in files:
+                if self._is_cancelled:
+                    return count
+                if file_name.startswith("."):
+                    continue
+
+                full_path = root_path / file_name
+
+                try:
+                    st = full_path.lstat()
+                    if not stat.S_ISREG(st.st_mode) or st.st_size == 0:
+                        continue
+                except OSError as e:
+                    logging.warning(
+                        f"Could not stat file during count walk: {full_path}, error: {e}. Skipping."
+                    )
+                    continue
+
+                try:
+                    relative_path_to_base = full_path.relative_to(self.config.generation_options.base_directory)
+                    relative_path_to_current = full_path.relative_to(dir_path)
+                except ValueError:
+                    logging.warning(
+                        f"Could not make file path relative during count walk: {full_path}. Skipping."
+                    )
+                    continue
+
+                if (
+                    self.config.filter_settings.ignore_spec
+                    and self.config.filter_settings.ignore_spec.match_file(str(relative_path_to_base))
+                ) or (
+                    current_dir_ignore_spec
+                    and current_dir_ignore_spec.match_file(
+                        str(relative_path_to_current)
+                    )
+                ):
+                    continue
+
+                # Use the new matching logic
+                if not matches_file_type(
+                    full_path,
+                    self.config.filter_settings.selected_extensions,
+                    self.config.filter_settings.selected_filenames,
+                    self.config.filter_settings.all_known_extensions,
+                    self.config.filter_settings.all_known_filenames,
+                    self.config.filter_settings.handle_other_text_files,
+                ):
+                    continue
+
+                if is_binary_file(full_path):
+                    continue
+
+                count += 1
+
+        return count
+
     def process_directory_recursive(
         self,
         dir_path: Path,
@@ -487,35 +594,88 @@ class GeneratorWorker(QtCore.QObject):
         import tempfile
         import shutil
         
+        error_message = ""
+        
+        # Pre-scan phase to count matching files accurately
+        self.status_updated.emit("Pre-scanning files...")
+        total_files = 0
+        for path in self.config.generation_options.selected_paths:
+            if self._is_cancelled:
+                break
+            try:
+                st = path.lstat()
+                is_regular_file = stat.S_ISREG(st.st_mode)
+                is_regular_dir = stat.S_ISDIR(st.st_mode)
+
+                rel_path_base_str = ""
+                try:
+                    rel_path_base_str = str(path.relative_to(self.config.generation_options.base_directory))
+                except ValueError:
+                    pass
+
+                if is_regular_file:
+                    if st.st_size == 0:
+                        continue
+                    if self.config.filter_settings.ignore_spec and self.config.filter_settings.ignore_spec.match_file(
+                        rel_path_base_str
+                    ):
+                        continue
+
+                    if not matches_file_type(
+                        path,
+                        self.config.filter_settings.selected_extensions,
+                        self.config.filter_settings.selected_filenames,
+                        self.config.filter_settings.all_known_extensions,
+                        self.config.filter_settings.all_known_filenames,
+                        self.config.filter_settings.handle_other_text_files,
+                    ):
+                        continue
+
+                    if is_binary_file(path):
+                        continue
+
+                    total_files += 1
+
+                elif is_regular_dir:
+                    if self.config.filter_settings.ignore_spec and self.config.filter_settings.ignore_spec.match_file(
+                        rel_path_base_str + "/"
+                    ):
+                        continue
+
+                    current_dir_ignore_spec = load_ignore_patterns(path)
+                    total_files += self.count_directory_recursive(
+                        path,
+                        current_dir_ignore_spec,
+                    )
+
+            except (OSError, ValueError) as e:
+                logging.error(f"Worker: Error counting item {path.name}: {e}")
+                continue
+            except Exception as e:
+                logging.error(
+                    f"Worker: Unexpected error counting item {path.name}: {e}",
+                    exc_info=True,
+                )
+                continue
+
+        if self._is_cancelled:
+            logging.info("Worker cancelled during pre-scan phase.")
+            self.finished.emit("", "Operation cancelled.")
+            return
+
+        if total_files == 0:
+            self.finished.emit("", "No matching files found.")
+            return
+
+        self.pre_count_finished.emit(total_files)
+        self.status_updated.emit("Processing...")
+
+        # Processing phase
+        files_processed_count = 0
+
         # Create a temporary file for streaming output
         temp_fd, temp_path = tempfile.mkstemp(suffix='.md', text=True)
         output_file = os.fdopen(temp_fd, 'w', encoding='utf-8')
-        error_message = ""
-        files_processed_count = 0
-
-        # Estimate total files for progress bar. This is a rough guess.
-        # A full pre-count is avoided for performance.
-        estimated_total_files = 0
-        for path in self.config.generation_options.selected_paths:
-            if path.is_file():
-                estimated_total_files += 1
-            elif path.is_dir():
-                try:
-                    # Quick, non-recursive estimate
-                    estimated_total_files += len(
-                        [
-                            e
-                            for e in os.scandir(path)
-                            if e.is_file() and not e.name.startswith(".")
-                        ]
-                    )
-                except OSError:
-                    pass  # Ignore permission errors here
-
-        self.pre_count_finished.emit(
-            estimated_total_files if estimated_total_files > 0 else 100
-        )  # Fake max for progress
-        self.status_updated.emit("Processing...")
 
         try:
             for path in self.config.generation_options.selected_paths:
@@ -564,9 +724,9 @@ class GeneratorWorker(QtCore.QObject):
                                     os.unlink(temp_path)
                                     return
                                 files_processed_count += 1
-                                if estimated_total_files > 0:
+                                if total_files > 0:
                                     progress = int(
-                                        (files_processed_count / estimated_total_files)
+                                        (files_processed_count / total_files)
                                         * 100
                                     )
                                     self.progress_updated.emit(
@@ -595,9 +755,9 @@ class GeneratorWorker(QtCore.QObject):
                         )
                         if newly_processed > 0:
                             files_processed_count = processed_counter_ref[0]
-                            if estimated_total_files > 0:
+                            if total_files > 0:
                                 progress = int(
-                                    (files_processed_count / estimated_total_files)
+                                    (files_processed_count / total_files)
                                     * 100
                                 )
                                 self.progress_updated.emit(min(progress, 99))
@@ -1271,10 +1431,6 @@ class FileConcatenator(QtWidgets.QMainWindow):
                     continue
 
                 if entry.name.startswith("."):
-                    continue
-
-                if entry.is_symlink():
-                    logging.info(f"Skipping symbolic link in listing: {entry.name}")
                     continue
 
                 if search_text and search_text not in entry.name.lower():
