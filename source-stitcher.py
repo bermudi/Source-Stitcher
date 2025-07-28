@@ -1511,7 +1511,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
     def add_dir_node(
         self, parent_item: Optional[QtWidgets.QTreeWidgetItem], path: Path
     ) -> QtWidgets.QTreeWidgetItem:
-        """Adds a directory node to the tree, with a dummy child to make it expandable."""
+        """Adds a directory node to the tree."""
         node = QtWidgets.QTreeWidgetItem([path.name])
         node.setFlags(
             node.flags()
@@ -1524,8 +1524,10 @@ class FileConcatenator(QtWidgets.QMainWindow):
             0, self.icon_provider.icon(QtWidgets.QFileIconProvider.IconType.Folder)
         )
 
-        # Add a fake child to make the expander arrow show up
-        node.addChild(QtWidgets.QTreeWidgetItem())
+        # Show the expander arrow without a fake child
+        node.setChildIndicatorPolicy(
+            QtWidgets.QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator
+        )
 
         if parent_item:
             parent_item.addChild(node)
@@ -1562,23 +1564,18 @@ class FileConcatenator(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot(QtWidgets.QTreeWidgetItem)
     def populate_children(self, item: QtWidgets.QTreeWidgetItem) -> None:
         """Populates the children of a directory item when it's expanded."""
-        # Check if it's the first expansion (dummy child is present)
-        if not (
-            item.childCount() > 0 and item.child(0).data(0, self.PATH_ROLE) is None
-        ):
-            return  # Already populated
+        # Already populated?
+        if item.childCount() > 0:
+            return
 
         blocked = self.file_tree_widget.signalsBlocked()
         self.file_tree_widget.blockSignals(True)
 
-        item.takeChildren()  # Remove the dummy child
-
         path: Path | None = item.data(0, self.PATH_ROLE)
-        if path and os.path.isdir(
-            path
-        ):  # Use os.path.isdir to follow symlinks if necessary
+        if path and path.is_dir():
             self.populate_directory(path, item)
 
+        # propagate check-state to the new children
         state = item.checkState(0)
         if state != QtCore.Qt.CheckState.PartiallyChecked:
             self._set_children_check_state(item, state)
@@ -1586,7 +1583,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
 
         self.file_tree_widget.blockSignals(blocked)
 
-        # Manually propagate up
+        # update ancestors
         parent = item.parent()
         while parent:
             self._update_parent_check_state(parent)
