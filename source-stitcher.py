@@ -1388,10 +1388,22 @@ class FileConcatenator(QtWidgets.QMainWindow):
         if item_path and isinstance(item_path, Path):
             try:
                 resolved = item_path.resolve()
-                # Reject if outside project root
-                if not str(resolved).startswith(str(self.working_dir.resolve())):
-                    logging.warning(f"Rejected path outside project root: {resolved}")
-                    return paths
+                # Reject if outside project root using proper path comparison
+                try:
+                    if not resolved.is_relative_to(self.working_dir.resolve()):
+                        logging.warning(f"Rejected path outside project root: {resolved}")
+                        return paths
+                except AttributeError:
+                    # Fallback for Python < 3.9 - use Path.parts for comparison
+                    try:
+                        working_dir_parts = self.working_dir.resolve().parts
+                        resolved_parts = resolved.parts
+                        if resolved_parts[:len(working_dir_parts)] != working_dir_parts:
+                            logging.warning(f"Rejected path outside project root (fallback): {resolved}")
+                            return paths
+                    except Exception as e:
+                        logging.warning(f"Error in path comparison: {e}")
+                        return paths
             except Exception as e:
                 logging.warning(f"Error resolving path {item_path}: {e}")
                 return paths
