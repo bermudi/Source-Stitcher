@@ -1,3 +1,0 @@
-# requirements.txt
-pathspec
-PyQt6

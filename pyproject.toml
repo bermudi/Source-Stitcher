@@ -1,0 +1,11 @@
+[project]
+name = "source-stitcher"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pathspec",
+    "PyQt6", 
+    "atomicwrites"
+]
