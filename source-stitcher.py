@@ -1,6 +1,7 @@
 import sys
 import os
 import logging
+import shutil
 from pathlib import Path
 from datetime import datetime
 import pathspec
@@ -360,7 +361,7 @@ class GeneratorWorker(QtCore.QObject):
         self,
         dir_path: Path,
         current_dir_ignore_spec: pathspec.PathSpec | None,
-        output_content: List[str],
+        output_file,
         files_processed_counter: List[int],
     ) -> None:
         """
@@ -460,23 +461,35 @@ class GeneratorWorker(QtCore.QObject):
                 ):
                     continue
 
-                file_content = self.get_file_content(full_path)
-                if file_content is None:
+                try:
+                    file_content = self.get_file_content(full_path)
+                    if file_content is None:
+                        continue
+
+                    relative_path_output = relative_path_to_base
+                    ext = full_path.suffix[1:] if full_path.suffix else "txt"
+                    
+                    # Write directly to the output file
+                    output_file.write(f"\n--- File: {relative_path_output} ---\n")
+                    output_file.write(f"```{ext}\n")
+                    output_file.write(file_content)
+                    output_file.write("\n```\n\n")
+                    output_file.flush()  # Ensure content is written
+
+                    files_processed_counter[0] += 1
+                except IOError as e:
+                    logging.error(f"Error writing file {full_path}: {e}")
                     continue
-
-                relative_path_output = relative_path_to_base
-                ext = full_path.suffix[1:] if full_path.suffix else "txt"
-                output_content.append(f"\n--- File: {relative_path_output} ---")
-                output_content.append(f"```{ext}")
-                output_content.append(file_content)
-                output_content.append("```\n")
-
-                files_processed_counter[0] += 1
 
     @QtCore.pyqtSlot()
     def run(self) -> None:
         """Main execution method for the worker thread."""
-        output_content: List[str] = []
+        import tempfile
+        import shutil
+        
+        # Create a temporary file for streaming output
+        temp_fd, temp_path = tempfile.mkstemp(suffix='.md', text=True)
+        output_file = os.fdopen(temp_fd, 'w', encoding='utf-8')
         error_message = ""
         files_processed_count = 0
 
@@ -537,12 +550,19 @@ class GeneratorWorker(QtCore.QObject):
                             file_content = self.get_file_content(path)
                             if file_content is not None:
                                 ext = path.suffix[1:] if path.suffix else "txt"
-                                output_content.append(
-                                    f"\n--- File: {rel_path_base_str} ---"
-                                )
-                                output_content.append(f"```{ext}")
-                                output_content.append(file_content)
-                                output_content.append("```\n")
+                                try:
+                                    output_file.write(f"\n--- File: {rel_path_base_str} ---\n")
+                                    output_file.write(f"```{ext}\n")
+                                    output_file.write(file_content)
+                                    output_file.write("\n```\n\n")
+                                    output_file.flush()  # Ensure content is written
+                                except IOError as e:
+                                    error_message = f"Error writing to output file: {e}"
+                                    logging.error(error_message)
+                                    self.finished.emit("", error_message)
+                                    output_file.close()
+                                    os.unlink(temp_path)
+                                    return
                                 files_processed_count += 1
                                 if estimated_total_files > 0:
                                     progress = int(
@@ -565,7 +585,7 @@ class GeneratorWorker(QtCore.QObject):
                         self.process_directory_recursive(
                             path,
                             current_dir_ignore_spec,
-                            output_content,
+                            output_file,  # Pass the file object instead of the list
                             processed_counter_ref,
                         )
 
@@ -604,14 +624,25 @@ class GeneratorWorker(QtCore.QObject):
             logging.info(
                 f"Worker finished processing. Total files included: {files_processed_count}"
             )
-            final_content = self.config.generation_options.line_ending.join(output_content)
-            self.finished.emit(final_content, error_message if error_message else "")
-
+            output_file.close()
+            
+            if not self._is_cancelled and not error_message:
+                self.finished.emit(temp_path, "")
+            else:
+                if os.path.exists(temp_path):
+                    os.unlink(temp_path)
+                if not error_message:  # If we got here and no error but cancelled
+                    self.finished.emit("", "Operation cancelled.")
         except Exception as e:
-            logging.error(f"Critical error in worker run method: {e}", exc_info=True)
-            detailed_error = traceback.format_exc()
-            self.finished.emit("", f"Critical worker error: {e}\n{detailed_error}")
-
+            logging.error(f"Worker error: {e}", exc_info=True)
+            error_message = f"Error during processing: {e}"
+            if 'output_file' in locals() and not output_file.closed:
+                output_file.close()
+            if 'temp_path' in locals() and os.path.exists(temp_path):
+                os.unlink(temp_path)
+            self.finished.emit("", error_message)
+        finally:
+            self.status_updated.emit("Finished")
 
 # --- Main Application Window ---
 class FileConcatenator(QtWidgets.QMainWindow):
@@ -1537,7 +1568,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.progress_bar.setFormat(message + " %p%")
 
     @QtCore.pyqtSlot(str, str)
-    def handle_generation_finished(self, result_content: str, error_message: str) -> None:
+    def handle_generation_finished(self, temp_file_path: str, error_message: str) -> None:
         """Slot to handle the finished signal from the worker."""
         logging.info(f"Generator worker finished. Error: '{error_message}'")
 
@@ -1554,14 +1585,22 @@ class FileConcatenator(QtWidgets.QMainWindow):
                 QtWidgets.QMessageBox.warning(
                     self, "Generation Error", f"An error occurred:\n{error_message}"
                 )
-        elif not result_content:
+        elif not temp_file_path:
             QtWidgets.QMessageBox.information(
                 self,
                 "Finished",
                 "No processable content found in the selected items matching the filters.",
             )
         else:
-            self.save_generated_file(result_content)
+            try:
+                self.save_generated_file(temp_file_path)
+            except Exception as e:
+                error_message = str(e)
+                QtWidgets.QMessageBox.critical(
+                    self, 
+                    "Error Saving File", 
+                    f"Failed to save output file: {error_message}"
+                )
 
     def generation_cleanup(self) -> None:
         """Slot called when the thread finishes, regardless of reason."""
@@ -1583,7 +1622,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         else:
             logging.warning("Cancel clicked but no worker active.")
 
-    def save_generated_file(self, content: str) -> None:
+    def save_generated_file(self, temp_file_path: str) -> None:
         """Handles the save file dialog and writing the output."""
         # Try to find Desktop, with multiple fallback strategies
         desktop_path = None
@@ -1667,7 +1706,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
                 )
                 return
 
-            # Use atomic write for output
+            # Write header to the output file
             with atomic_write(output_path, mode="w", encoding="utf-8", overwrite=True) as f:
                 f.write(f"# Concatenated Files from: {self.working_dir}\n")
                 f.write(
@@ -1682,22 +1721,29 @@ class FileConcatenator(QtWidgets.QMainWindow):
                 else:
                     f.write(f"# Selected file types: {', '.join(selected_types)}\n")
 
-                # Add some statistics if we can calculate them quickly
-                try:
-                    file_count = len(
-                        [item for item in content.split("\n--- File:") if item.strip()]
-                    )
-                    f.write(f"# Number of files included: {file_count}\n")
-                except:
-                    pass
-
                 f.write("\n" + "=" * 60 + "\n")
                 f.write("START OF CONCATENATED CONTENT\n")
                 f.write("=" * 60 + "\n\n")
-                f.write(content)
-                f.write("\n" + "=" * 60 + "\n")
-                f.write("END OF CONCATENATED CONTENT\n")
-                f.write("=" * 60 + "\n")
+                f.flush()
+
+                # Stream the content from the temporary file
+                try:
+                    with open(temp_file_path, 'r', encoding='utf-8') as temp_file:
+                        shutil.copyfileobj(temp_file, f)
+                    
+                    f.write("\n" + "=" * 60 + "\n")
+                    f.write("END OF CONCATENATED CONTENT\n")
+                    f.write("=" * 60 + "\n")
+                except Exception as e:
+                    error_msg = f"Error writing output file: {e}"
+                    logging.error(error_msg)
+                    raise IOError(error_msg)
+                finally:
+                    # Clean up the temporary file
+                    try:
+                        os.unlink(temp_file_path)
+                    except OSError as e:
+                        logging.warning(f"Could not remove temporary file {temp_file_path}: {e}")
 
             # Success message with file location
             QtWidgets.QMessageBox.information(
