@@ -130,22 +130,12 @@ class CLIProgressReporter:
         import time
         self.start_time = time.time()
     
-    def on_file_processed(self, file_path: str):
-        """Handle individual file processing (if available from worker)."""
-        self.processed_files += 1
-        if self.show_progress and not self.quiet and self.total_files > 0:
-            percentage = (self.processed_files / self.total_files) * 100
-            print(f"Processed: {self.processed_files}/{self.total_files} ({percentage:.1f}%)", 
-                  file=sys.stderr)
-        logging.debug(f"Processed file: {file_path}")
-    
     def get_summary_stats(self, output_file: Path) -> dict:
         """Generate summary statistics for final output."""
         import time
         
         stats = {
-            "total_files": self.total_files,
-            "processed_files": self.processed_files,
+            "total_files_found": self.total_files,
             "processing_time": None,
             "output_size": 0
         }
@@ -165,7 +155,7 @@ class CLIProgressReporter:
             
         stats = self.get_summary_stats(output_file)
         
-        print(f"Successfully processed {stats['processed_files']} files", file=sys.stderr)
+        print(f"Successfully processed {stats['total_files_found']} files", file=sys.stderr)
         print(f"Output written to: {output_file}", file=sys.stderr)
         print(f"Output file size: {stats['output_size']:,} bytes", file=sys.stderr)
         
@@ -789,6 +779,18 @@ def main():
         sys.exit(exit_code)
     else:
         # GUI mode (existing functionality)
+        # Configure logging for GUI mode - use CLI args if provided
+        verbose = args.verbose if args else False
+        quiet = args.quiet if args else False
+        log_level = args.log_level if args else "INFO"
+        
+        configure_logging(
+            verbose=verbose,
+            quiet=quiet,
+            log_level=log_level,
+            is_cli_mode=False
+        )
+        
         app = QtWidgets.QApplication(sys.argv)
 
         settings = QtCore.QSettings(app_settings.organization_name, "SOTAConcatenator")
