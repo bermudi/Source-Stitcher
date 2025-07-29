@@ -461,6 +461,183 @@ def run_cli_mode(cli_config: CLIConfig) -> int:
         return 1  # General error exit code
 
 
+def show_supported_file_types():
+    """Display all supported file types with detailed information."""
+    language_extensions = get_language_extensions()
+    
+    print("Source Stitcher - Supported File Types")
+    print("=" * 60)
+    print()
+    
+    # Calculate statistics
+    total_categories = len([k for k in language_extensions.keys() if k != "Other Text Files"])
+    total_extensions = sum(len([ext for ext in exts if ext.startswith('.')]) 
+                          for exts in language_extensions.values())
+    total_filenames = sum(len([ext for ext in exts if not ext.startswith('.')]) 
+                         for exts in language_extensions.values())
+    
+    print(f"Total categories: {total_categories}")
+    print(f"Total extensions: {total_extensions}")
+    print(f"Total specific filenames: {total_filenames}")
+    print()
+    
+    # Display each category
+    for lang_name, extensions in language_extensions.items():
+        if lang_name == "Other Text Files":
+            continue  # Skip the special category
+            
+        print(f"{lang_name}:")
+        print("-" * len(lang_name))
+        
+        # Group extensions and filenames
+        exts = sorted([ext for ext in extensions if ext.startswith('.')])
+        files = sorted([ext for ext in extensions if not ext.startswith('.')])
+        
+        if exts:
+            # Format extensions in columns for better readability
+            ext_str = ', '.join(exts)
+            if len(ext_str) > 70:
+                # Split into multiple lines if too long
+                ext_lines = []
+                current_line = "  Extensions: "
+                for ext in exts:
+                    if len(current_line + ext + ", ") > 75:
+                        ext_lines.append(current_line.rstrip(", "))
+                        current_line = "              " + ext + ", "
+                    else:
+                        current_line += ext + ", "
+                ext_lines.append(current_line.rstrip(", "))
+                print("\n".join(ext_lines))
+            else:
+                print(f"  Extensions: {ext_str}")
+        
+        if files:
+            # Format filenames similarly
+            files_str = ', '.join(files)
+            if len(files_str) > 70:
+                file_lines = []
+                current_line = "  Files: "
+                for file in files:
+                    if len(current_line + file + ", ") > 75:
+                        file_lines.append(current_line.rstrip(", "))
+                        current_line = "         " + file + ", "
+                    else:
+                        current_line += file + ", "
+                file_lines.append(current_line.rstrip(", "))
+                print("\n".join(file_lines))
+            else:
+                print(f"  Files: {files_str}")
+        
+        print()
+    
+    # Usage examples
+    print("Usage Examples:")
+    print("=" * 15)
+    print()
+    print("Include specific types:")
+    print("  --include-types python,javascript")
+    print("  --include-types 'web frontend,config'")
+    print()
+    print("Exclude specific types:")
+    print("  --exclude-types documentation,devops")
+    print("  --exclude-types 'version control'")
+    print()
+    print("Mix with extensions:")
+    print("  --include-types python --exclude-extensions .pyc,.pyo")
+    print("  --include-extensions .py,.js --exclude-types documentation")
+    print()
+    print("Notes:")
+    print("- Type names are case-insensitive and support partial matching")
+    print("- Use quotes for type names containing spaces")
+    print("- Extensions should include the dot (e.g., '.py' not 'py')")
+    print("- Exclude filters take precedence over include filters")
+
+
+def show_version_info():
+    """Display detailed version information."""
+    app_settings = AppSettings()
+    print(f"Source Stitcher v{app_settings.application_version}")
+    print()
+    print("A tool for concatenating source code files into unified documents")
+    print("Supports both GUI and CLI modes for flexible usage")
+    print()
+    print("For more information and usage examples, use --help")
+
+
+def show_helpful_error(parser: argparse.ArgumentParser, error_msg: str, suggestion: str = None):
+    """Display helpful error messages with usage hints."""
+    print(f"Error: {error_msg}", file=sys.stderr)
+    if suggestion:
+        print(f"Suggestion: {suggestion}", file=sys.stderr)
+    print(file=sys.stderr)
+    print("For help, use: source-stitcher --help", file=sys.stderr)
+    print("For supported file types, use: source-stitcher --list-types", file=sys.stderr)
+    print("For version information, use: source-stitcher --version", file=sys.stderr)
+    sys.exit(2)
+
+
+def show_usage_examples():
+    """Display comprehensive usage examples."""
+    print()
+    print("Common Usage Examples:")
+    print("=" * 22)
+    print()
+    print("Basic Usage:")
+    print("  source-stitcher                                    # Launch GUI")
+    print("  source-stitcher /path/to/project                   # GUI with pre-selected directory")
+    print("  source-stitcher --cli /path/to/project --output result.md  # Basic CLI usage")
+    print()
+    print("File Type Filtering:")
+    print("  # Include only Python and JavaScript files")
+    print("  source-stitcher --cli /project --output code.md --include-types python,javascript")
+    print()
+    print("  # Exclude documentation and config files")
+    print("  source-stitcher --cli /project --output code.md --exclude-types documentation,config")
+    print()
+    print("  # Include specific extensions")
+    print("  source-stitcher --cli /project --output code.md --include-extensions .py,.js,.ts")
+    print()
+    print("Ignore Patterns:")
+    print("  # Ignore .gitignore patterns")
+    print("  source-stitcher --cli /project --output code.md --no-gitignore")
+    print()
+    print("  # Use custom ignore file")
+    print("  source-stitcher --cli /project --output code.md --ignore-file .customignore")
+    print()
+    print("Output Formatting:")
+    print("  # Plain text output")
+    print("  source-stitcher --cli /project --output code.txt --format plain")
+    print()
+    print("  # JSON output with custom encoding")
+    print("  source-stitcher --cli /project --output code.json --format json --encoding utf-16")
+    print()
+    print("  # No statistics or timestamp")
+    print("  source-stitcher --cli /project --output code.md --no-stats --no-timestamp")
+    print()
+    print("Logging and Progress:")
+    print("  # Verbose output with progress")
+    print("  source-stitcher --cli /project --output code.md --verbose --progress")
+    print()
+    print("  # Quiet mode (errors only)")
+    print("  source-stitcher --cli /project --output code.md --quiet")
+    print()
+    print("  # Custom log level")
+    print("  source-stitcher --cli /project --output code.md --log-level DEBUG")
+    print()
+    print("CI/CD Integration:")
+    print("  # Automated processing with overwrite")
+    print("  source-stitcher --cli $PROJECT_DIR --output artifacts/source.md --overwrite --quiet")
+    print()
+    print("  # Process only source code, exclude tests and docs")
+    print("  source-stitcher --cli . --output source.md --include-types python,javascript \\")
+    print("                  --exclude-extensions .test.py,.spec.js --exclude-types documentation")
+    print()
+    print("Information Commands:")
+    print("  source-stitcher --version                          # Show version")
+    print("  source-stitcher --list-types                       # Show supported file types")
+    print("  source-stitcher --help                             # Show this help")
+
+
 def parse_cli_arguments() -> Optional[argparse.Namespace]:
     """
     Parse command-line arguments.
@@ -470,18 +647,42 @@ def parse_cli_arguments() -> Optional[argparse.Namespace]:
     """
     parser = argparse.ArgumentParser(
         prog="source-stitcher",
-        description="Source Stitcher - Concatenate source code files into a single document",
+        description="""
+Source Stitcher - Concatenate source code files into unified documents
+
+A powerful tool for combining multiple source code files into a single document,
+supporting both GUI and CLI modes. Perfect for code reviews, documentation
+generation, and AI/LLM consumption of codebases.
+
+Supports 15+ programming languages with intelligent file type detection,
+gitignore pattern matching, and flexible filtering options.
+        """.strip(),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                           # Launch GUI mode
-  %(prog)s /path/to/project          # Launch GUI with pre-selected directory
-  %(prog)s --cli /path/to/project --output result.md  # CLI mode
-  %(prog)s --cli /path/to/project --output result.md --include-types python,javascript
-  %(prog)s --cli /path/to/project --output result.md --exclude-extensions .pyc,.log
-  %(prog)s --version                 # Show version information
-  %(prog)s --list-types              # Show supported file types
-  %(prog)s --help                    # Show this help message
+  %(prog)s                                    # Launch GUI mode
+  %(prog)s /path/to/project                   # GUI with pre-selected directory
+  %(prog)s --cli /project --output result.md # Basic CLI usage
+  
+  # File type filtering
+  %(prog)s --cli /project --output code.md --include-types python,javascript
+  %(prog)s --cli /project --output code.md --exclude-types documentation,config
+  %(prog)s --cli /project --output code.md --include-extensions .py,.js,.ts
+  
+  # Output formatting
+  %(prog)s --cli /project --output code.txt --format plain --no-stats
+  %(prog)s --cli /project --output code.json --format json --encoding utf-16
+  
+  # Logging and progress
+  %(prog)s --cli /project --output code.md --verbose --progress
+  %(prog)s --cli /project --output code.md --quiet --overwrite
+  
+  # Information commands
+  %(prog)s --version                          # Show version information
+  %(prog)s --list-types                       # Show supported file types
+  %(prog)s --help                             # Show this help message
+
+For more detailed examples and usage patterns, visit the project documentation.
         """,
     )
     
@@ -647,8 +848,7 @@ Examples:
     # Information commands
     parser.add_argument(
         "--version",
-        action="version",
-        version=f"%(prog)s {AppSettings().application_version}",
+        action="store_true",
         help="Show version information and exit",
     )
     
@@ -661,51 +861,106 @@ Examples:
     # Parse arguments
     args = parser.parse_args()
     
-    # Handle --list-types command
-    if args.list_types:
-        language_extensions = get_language_extensions()
-        print("Supported file types:")
-        print("=" * 50)
-        for lang_name, extensions in language_extensions.items():
-            if lang_name == "Other Text Files":
-                continue  # Skip the special category
-            print(f"\n{lang_name}:")
-            # Group extensions and filenames
-            exts = [ext for ext in extensions if ext.startswith('.')]
-            files = [ext for ext in extensions if not ext.startswith('.')]
-            if exts:
-                print(f"  Extensions: {', '.join(sorted(exts))}")
-            if files:
-                print(f"  Files: {', '.join(sorted(files))}")
-        print(f"\nUse type names (case-insensitive) with --include-types or --exclude-types")
-        print(f"Examples: 'python', 'javascript', 'web', 'config', 'documentation'")
+    # Handle information commands
+    if args.version:
+        show_version_info()
         sys.exit(0)
     
-    # Handle conflicting arguments
+    if args.list_types:
+        show_supported_file_types()
+        sys.exit(0)
+    
+    # Handle conflicting arguments with helpful messages
     if args.no_gitignore and args.ignore_file:
-        parser.error("Cannot use both --no-gitignore and --ignore-file")
+        show_helpful_error(parser, 
+                          "Cannot use both --no-gitignore and --ignore-file",
+                          "Use either --no-gitignore to disable all ignore patterns, or --ignore-file to specify a custom ignore file")
     
     if args.recursive and args.no_recursive:
-        parser.error("Cannot use both --recursive and --no-recursive")
+        show_helpful_error(parser,
+                          "Cannot use both --recursive and --no-recursive",
+                          "Choose either --recursive (default) to process subdirectories, or --no-recursive to process only the specified directory")
     
     if args.verbose and args.quiet:
-        parser.error("Cannot use both --verbose and --quiet")
+        show_helpful_error(parser,
+                          "Cannot use both --verbose and --quiet",
+                          "Choose either --verbose for detailed output, or --quiet to suppress non-error messages")
+    
+    # Validate file type arguments
+    if args.include_types and args.exclude_types:
+        # Check for overlapping types
+        include_set = set(t.strip().lower() for t in args.include_types.split(','))
+        exclude_set = set(t.strip().lower() for t in args.exclude_types.split(','))
+        overlap = include_set.intersection(exclude_set)
+        if overlap:
+            show_helpful_error(parser,
+                              f"File types cannot be both included and excluded: {', '.join(overlap)}",
+                              "Remove overlapping types from either --include-types or --exclude-types")
     
     # Basic validation for CLI mode
     if args.cli:
         if not args.directory:
-            parser.error("Directory argument is required in CLI mode")
+            show_helpful_error(parser,
+                              "Directory argument is required in CLI mode",
+                              "Provide a directory path: source-stitcher --cli /path/to/project --output result.md")
         if not args.output:
-            parser.error("--output is required in CLI mode")
+            show_helpful_error(parser,
+                              "--output is required in CLI mode",
+                              "Specify output file: source-stitcher --cli /path/to/project --output result.md")
         if not args.directory.exists():
-            parser.error(f"Directory does not exist: {args.directory}")
+            show_helpful_error(parser,
+                              f"Directory does not exist: {args.directory}",
+                              "Check the directory path and ensure it exists")
         if not args.directory.is_dir():
-            parser.error(f"Path is not a directory: {args.directory}")
+            show_helpful_error(parser,
+                              f"Path is not a directory: {args.directory}",
+                              "Provide a valid directory path, not a file")
         if args.ignore_file and not args.ignore_file.exists():
-            parser.error(f"Ignore file does not exist: {args.ignore_file}")
+            show_helpful_error(parser,
+                              f"Ignore file does not exist: {args.ignore_file}",
+                              "Check the ignore file path and ensure it exists")
+        
+        # Validate output directory is writable
+        output_dir = args.output.parent
+        if not output_dir.exists():
+            try:
+                output_dir.mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                show_helpful_error(parser,
+                                  f"Cannot create output directory: {output_dir}",
+                                  f"Check permissions and path validity: {e}")
+        elif not output_dir.is_dir():
+            show_helpful_error(parser,
+                              f"Output path parent is not a directory: {output_dir}",
+                              "Ensure the output file path is valid")
     
-    # If no arguments provided (just the script name), return None to use GUI mode
+    # Validate file type names if provided
+    if args.include_types or args.exclude_types:
+        language_extensions = get_language_extensions()
+        valid_types = [name.lower() for name in language_extensions.keys() if name != "Other Text Files"]
+        
+        for type_arg, arg_name in [(args.include_types, "--include-types"), (args.exclude_types, "--exclude-types")]:
+            if type_arg:
+                provided_types = [t.strip().lower() for t in type_arg.split(',')]
+                invalid_types = []
+                for ptype in provided_types:
+                    # Check for exact match or partial match
+                    if not any(ptype in vtype or vtype in ptype for vtype in valid_types):
+                        invalid_types.append(ptype)
+                
+                if invalid_types:
+                    show_helpful_error(parser,
+                                      f"Unknown file types in {arg_name}: {', '.join(invalid_types)}",
+                                      "Use --list-types to see all supported file types")
+    
+    # If no arguments provided (just the script name), show basic usage and return None for GUI mode
     if len(sys.argv) == 1:
+        print("Source Stitcher - No arguments provided, launching GUI mode")
+        print()
+        print("For CLI usage: source-stitcher --cli /path/to/project --output result.md")
+        print("For help: source-stitcher --help")
+        print("For supported file types: source-stitcher --list-types")
+        print()
         return None
     
     return args
