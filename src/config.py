@@ -44,7 +44,7 @@ class GenerationOptions:
     include_timestamp: bool = True
     max_file_size_mb: int = 100
     # List of encodings to try in order, with fallbacks
-    encodings: List[str] = None
+    encodings: Optional[List[str]] = None
     # Default encoding to use if none specified
     default_encoding: str = "utf-8"
     line_ending: str = "\n"

@@ -67,12 +67,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
                 style.standardIcon(QtWidgets.QStyle.StandardPixmap.SP_ArrowUp)
             )
         self.btn_up.setToolTip("Go to Parent Directory (Alt+Up)")
-        self.btn_up.setShortcut(
-            QtGui.QKeySequence(
-                QtCore.Qt.KeyboardModifier.AltModifier.value
-                | QtCore.Qt.Key.Key_Up.value
-            )
-        )
+        self.btn_up.setShortcut(QtGui.QKeySequence("Alt+Up"))
         self.btn_up.clicked.connect(self.go_up_directory)
         self.btn_up.setFixedWidth(
             self.btn_up.fontMetrics().horizontalAdvance(" Up ") * 2
@@ -618,9 +613,10 @@ class FileConcatenator(QtWidgets.QMainWindow):
     ) -> None:
         for i in range(item.childCount()):
             child = item.child(i)
-            if child.flags() & QtCore.Qt.ItemFlag.ItemIsUserCheckable:
-                child.setCheckState(0, state)
-            self._set_children_check_state(child, state)
+            if child is not None:
+                if child.flags() & QtCore.Qt.ItemFlag.ItemIsUserCheckable:
+                    child.setCheckState(0, state)
+                self._set_children_check_state(child, state)
 
     def _update_parent_check_state(self, parent: QtWidgets.QTreeWidgetItem) -> None:
         checked_count = 0
@@ -628,7 +624,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         has_partial = False
         for i in range(parent.childCount()):
             child = parent.child(i)
-            if child.flags() & QtCore.Qt.ItemFlag.ItemIsUserCheckable:
+            if child is not None and child.flags() & QtCore.Qt.ItemFlag.ItemIsUserCheckable:
                 total_count += 1
                 child_state = child.checkState(0)
                 if child_state == QtCore.Qt.CheckState.Checked:

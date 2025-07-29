@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PyQt6 import QtCore, QtWidgets
-from atomicwrites import atomic_write
+from atomicwrites import atomic_write  # type: ignore[import-untyped]
 
 
 class SaveFileDialog:
