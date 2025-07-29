@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Source Stitcher - Legacy entry point (now imports from modular structure).
-For new development, use main.py instead.
+Main entry point for the Source Stitcher application.
 """
 
 import logging
@@ -10,8 +9,8 @@ from pathlib import Path
 
 from PyQt6 import QtCore, QtWidgets
 
-from .config import AppSettings
-from .main_window import FileConcatenator
+from src.config import AppSettings
+from src.main_window import FileConcatenator
 
 # Configure logging
 logging.basicConfig(
