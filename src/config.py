@@ -1,18 +1,20 @@
 """Configuration dataclasses for the Source Stitcher application."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Set
 import pathspec
+
+from .version import get_cached_version, get_cached_app_name
 
 
 @dataclass
 class AppSettings:
     """Application-level settings and configuration."""
 
-    window_title: str = "SOTA Concatenator"
+    window_title: str = field(default_factory=lambda: f"{get_cached_app_name()}")
     organization_name: str = "YourOrg"
-    application_version: str = "1.5-tree"
+    application_version: str = field(default_factory=get_cached_version)
     default_window_width: int = 700
     default_window_height: int = 650
     chunk_size_bytes: int = 1024

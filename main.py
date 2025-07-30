@@ -10,7 +10,7 @@ from pathlib import Path
 from PyQt6 import QtCore, QtWidgets
 
 from src.config import AppSettings
-from src.main_window import FileConcatenator
+from src.ui.main_window import FileConcatenator
 from src.logging_config import configure_logging
 from src.cli.parser import parse_cli_arguments, create_cli_config_from_args
 from src.cli.runner import run_cli_mode

@@ -7,7 +7,8 @@ requires-python = ">=3.10"
 dependencies = [
     "pathspec",
     "PyQt6", 
-    "atomicwrites"
+    "atomicwrites",
+    "tomli>=1.2.0; python_version<'3.11'"
 ]
 
 [dependency-groups]

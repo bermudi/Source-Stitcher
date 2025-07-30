@@ -8,11 +8,11 @@ from typing import List, Optional, Set, Tuple
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
-from .config import FilterSettings, GenerationOptions, WorkerConfig
-from .file_utils import build_filter_sets, load_ignore_patterns, load_global_gitignore, matches_file_type
-from .language_definitions import get_language_extensions
-from .ui.dialogs import SaveFileDialog
-from .worker import GeneratorWorker
+from ..config import FilterSettings, GenerationOptions, WorkerConfig, AppSettings
+from ..file_utils import build_filter_sets, load_ignore_patterns, load_global_gitignore, matches_file_type
+from ..language_definitions import get_language_extensions
+from .dialogs import SaveFileDialog
+from ..worker import GeneratorWorker
 
 
 class FileConcatenator(QtWidgets.QMainWindow):
@@ -25,10 +25,11 @@ class FileConcatenator(QtWidgets.QMainWindow):
 
     def __init__(self, working_dir: Optional[Path] = None) -> None:
         super().__init__()
+        self.app_settings = AppSettings()
         self.initial_base_dir = (working_dir or Path.cwd()).resolve()
         self.working_dir = self.initial_base_dir
-        self.setWindowTitle(f"SOTA Concatenator - [{self.working_dir.name}]")
-        self.resize(700, 650)
+        self.setWindowTitle(f"{self.app_settings.window_title} v{self.app_settings.application_version} - [{self.working_dir.name}]")
+        self.resize(self.app_settings.default_window_width, self.app_settings.default_window_height)
 
         self.ignore_spec = load_ignore_patterns(self.working_dir)
         self.global_ignore_spec = load_global_gitignore()
@@ -287,7 +288,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
             )
         except ValueError:
             title_path = str(self.working_dir)
-        self.setWindowTitle(f"SOTA Concatenator - [{title_path}]")
+        self.setWindowTitle(f"{self.app_settings.window_title} v{self.app_settings.application_version} - [{title_path}]")
         self.current_path_label.setText(str(self.working_dir))
         self.current_path_label.setCursorPosition(0)
         is_root = self.working_dir.parent == self.working_dir
