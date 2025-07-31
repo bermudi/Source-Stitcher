@@ -3,14 +3,13 @@
 A PyQt6-based application for concatenating multiple source code files with intelligent filtering and language detection.
 
 
-[![Screenshot 1](https://i.postimg.cc/QxKnXPJ6/Screenshot-20250728-151844.png)]
+![Screenshot 1](https://i.postimg.cc/8CyDPymp/Screenshot-20250730-185558.png)
 
-[![Screenshot 2](https://i.postimg.cc/t40v75r9/Screenshot-20250728-152107.png)]
+![Screenshot 2](https://i.postimg.cc/t40v75r9/Screenshot-20250728-152107.png)
 
 
 ## Project Structure
 
-The application has been refactored into a clean modular structure:
 
 ```
 src/
@@ -51,11 +50,6 @@ main.py                        # New main application launcher
 python main.py
 # or with uv:
 uv run main.py
-```
-
-**Legacy (still works):**
-```bash
-python src/source-stitcher.py
 ```
 
 1. Select a project directory when prompted
@@ -103,7 +97,7 @@ The application follows a clean, modular architecture:
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.10+
 - PyQt6
 - pathspec
 - atomicwrites
