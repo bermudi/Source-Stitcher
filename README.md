@@ -14,22 +14,30 @@ A PyQt6-based application for concatenating multiple source code files with inte
 ```
 src/
 ├── __init__.py                 # Package initialization
-├── source-stitcher.py         # Legacy entry point (wrapper)
 ├── config.py                  # Configuration dataclasses
 ├── file_utils.py              # File utility functions
 ├── language_definitions.py    # Language and file type definitions
+├── logging_config.py          # Logging configuration
+├── version.py                 # Version management utilities
 ├── worker.py                  # Background worker thread
-├── main_window.py             # Main application window
 ├── core/                      # Core business logic
 │   ├── __init__.py
 │   ├── file_reader.py         # File reading with encoding detection
 │   ├── file_counter.py        # File counting for progress
 │   └── file_processor.py      # Directory processing logic
+├── cli/                       # Command line interface
+│   ├── __init__.py
+│   ├── config.py              # CLI configuration
+│   ├── info.py                # CLI info commands
+│   ├── parser.py              # Argument parsing
+│   ├── progress.py            # CLI progress display
+│   └── runner.py              # CLI execution logic
 └── ui/                        # User interface components
     ├── __init__.py
-    └── dialogs.py             # Dialog utilities
+    ├── dialogs.py             # Dialog utilities
+    └── main_window.py         # Main application window
 
-main.py                        # New main application launcher
+main.py                        # Main application launcher
 ```
 
 ## Features
@@ -45,12 +53,35 @@ main.py                        # New main application launcher
 
 ### Running the Application
 
-**Recommended (new modular approach):**
+#### Option 1: Quick Start with [`uv`](https://github.com/astral-sh/uv) (Recommended)
+
+If you have [uv](https://github.com/astral-sh/uv) installed, you don’t need to manually create a virtual environment or install dependencies:
+
 ```bash
-python main.py
-# or with uv:
+# Run directly (no manual setup needed):
 uv run main.py
+
+# Or via entry point (if installed as a package):
+uv run source-stitcher
 ```
+
+#### Option 2: Manual Setup with Virtual Environment
+
+If you prefer or need to use the classic Python tooling:
+
+```bash
+# Create and activate a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate   # On Windows use: .venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run the application
+python main.py
+```
+
+> **Tip:** Using `uv run ...` is the easiest way to avoid virtual environment and dependency headaches!
 
 1. Select a project directory when prompted
 2. Choose file types to include using the filter buttons

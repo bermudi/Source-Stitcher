@@ -18,10 +18,11 @@ def get_version() -> str:
     Get the application version from pyproject.toml.
     
     Returns:
-        Version string from pyproject.toml, or fallback version if unable to read.
+        Version string from pyproject.toml.
+        
+    Raises:
+        RuntimeError: If version cannot be determined from pyproject.toml.
     """
-    fallback_version = "1.5-tree"  # Keep as fallback for development
-    
     try:
         # Find pyproject.toml - look in current directory and parent directories
         current_path = Path(__file__).parent
@@ -35,12 +36,10 @@ def get_version() -> str:
                 break
         
         if not pyproject_path:
-            logging.debug("pyproject.toml not found, using fallback version")
-            return fallback_version
+            raise RuntimeError("pyproject.toml not found in project directory tree")
         
         if tomllib is None:
-            logging.debug("tomllib not available, using fallback version")
-            return fallback_version
+            raise RuntimeError("tomllib not available - install tomli for Python < 3.11")
         
         # Read and parse pyproject.toml
         with open(pyproject_path, "rb") as f:
@@ -51,12 +50,12 @@ def get_version() -> str:
             logging.debug(f"Version loaded from pyproject.toml: {version}")
             return version
         else:
-            logging.debug("Version not found in pyproject.toml, using fallback")
-            return fallback_version
+            raise RuntimeError("Version not found in pyproject.toml [project] section")
             
     except Exception as e:
-        logging.debug(f"Error reading version from pyproject.toml: {e}, using fallback")
-        return fallback_version
+        if isinstance(e, RuntimeError):
+            raise
+        raise RuntimeError(f"Error reading version from pyproject.toml: {e}")
 
 
 def get_app_name() -> str:
@@ -64,10 +63,11 @@ def get_app_name() -> str:
     Get the application name from pyproject.toml.
     
     Returns:
-        Application name from pyproject.toml, or fallback name if unable to read.
+        Application name from pyproject.toml.
+        
+    Raises:
+        RuntimeError: If app name cannot be determined from pyproject.toml.
     """
-    fallback_name = "Source Stitcher"
-    
     try:
         # Find pyproject.toml
         current_path = Path(__file__).parent
@@ -79,18 +79,26 @@ def get_app_name() -> str:
                 pyproject_path = potential_path
                 break
         
-        if not pyproject_path or tomllib is None:
-            return fallback_name
+        if not pyproject_path:
+            raise RuntimeError("pyproject.toml not found in project directory tree")
+            
+        if tomllib is None:
+            raise RuntimeError("tomllib not available - install tomli for Python < 3.11")
         
         # Read and parse pyproject.toml
         with open(pyproject_path, "rb") as f:
             data = tomllib.load(f)
         
-        name = data.get("project", {}).get("name", "").replace("-", " ").title()
-        return name if name else fallback_name
+        name = data.get("project", {}).get("name", "")
+        if name:
+            return name.replace("-", " ").title()
+        else:
+            raise RuntimeError("Name not found in pyproject.toml [project] section")
             
-    except Exception:
-        return fallback_name
+    except Exception as e:
+        if isinstance(e, RuntimeError):
+            raise
+        raise RuntimeError(f"Error reading app name from pyproject.toml: {e}")
 
 
 # Cache the version to avoid repeated file reads
