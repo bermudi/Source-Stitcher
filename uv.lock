@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10"
 
 [[package]]
@@ -125,7 +125,7 @@ wheels = [
 [[package]]
 name = "source-stitcher"
 version = "1.0.0a1"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "atomicwrites" },
     { name = "pathspec" },

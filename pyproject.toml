@@ -11,6 +11,17 @@ dependencies = [
     "tomli>=1.2.0; python_version<'3.11'"
 ]
 
+[project.scripts]
+source-stitcher = "main:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["main"]
+packages = ["src"]
+
 [dependency-groups]
 dev = [
     "mypy>=1.17.0",
