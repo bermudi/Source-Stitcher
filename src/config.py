@@ -1,11 +1,14 @@
 """Configuration dataclasses for the Source Stitcher application."""
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Set
 import pathspec
 
 from .version import get_cached_version, get_cached_app_name
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -45,23 +48,23 @@ class GenerationOptions:
     include_file_stats: bool = True
     include_timestamp: bool = True
     max_file_size_mb: int = 100
-    # List of encodings to try in order, with fallbacks
     encodings: Optional[List[str]] = None
-    # Default encoding to use if none specified
     default_encoding: str = "utf-8"
     line_ending: str = "\n"
 
     def __post_init__(self):
-        # Set default encodings if not provided
+        logger.debug("Initializing GenerationOptions")
         if self.encodings is None:
+            logger.debug("Encodings not provided, setting defaults.")
             self.encodings = [
-                "utf-8",  # Most common encoding for modern text files
-                "utf-8-sig",  # UTF-8 with BOM
-                "latin-1",  # Also known as ISO-8859-1, common in Western Europe
-                "iso-8859-1",  # ISO Latin 1
-                "cp1252",  # Windows-1252, common on Windows systems
-                "ascii",  # Basic ASCII
+                "utf-8",
+                "utf-8-sig",
+                "latin-1",
+                "iso-8859-1",
+                "cp1252",
+                "ascii",
             ]
+        logger.debug(f"GenerationOptions validation completed: {self}")
 
 
 @dataclass

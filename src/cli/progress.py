@@ -5,6 +5,8 @@ import sys
 import time
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+
 
 class CLIProgressReporter:
     """Progress reporter for CLI mode that connects to worker signals."""
@@ -15,31 +17,33 @@ class CLIProgressReporter:
         self.total_files = 0
         self.processed_files = 0
         self.start_time = None
+        logger.debug(f"CLIProgressReporter initialized with show_progress={show_progress}, quiet={quiet}")
         
     def on_status_updated(self, status: str):
         """Handle status updates from worker."""
         if self.show_progress and not self.quiet:
             print(f"Status: {status}", file=sys.stderr)
-        logging.info(f"Worker status: {status}")
+        logger.info(f"Worker status: {status}")
     
     def on_progress_updated(self, progress: int):
         """Handle progress updates from worker."""
         if self.show_progress and not self.quiet:
             print(f"Progress: {progress}%", file=sys.stderr)
-        logging.debug(f"Worker progress: {progress}%")
+        logger.debug(f"Worker progress updated to {progress}%")
     
     def on_pre_count_finished(self, total_files: int):
         """Handle pre-count completion."""
         self.total_files = total_files
         if self.show_progress and not self.quiet:
             print(f"Found {total_files} files to process", file=sys.stderr)
-        logging.info(f"Pre-count completed: {total_files} files found")
+        logger.info(f"Pre-count completed: {total_files} files found")
         
-        # Record start time for statistics
         self.start_time = time.time()
+        logger.debug(f"Processing start time recorded: {self.start_time}")
     
     def get_summary_stats(self, output_file: Path) -> dict:
         """Generate summary statistics for final output."""
+        logger.debug("Calculating summary stats...")
         stats = {
             "total_files_found": self.total_files,
             "processing_time": None,
@@ -52,6 +56,7 @@ class CLIProgressReporter:
         if output_file.exists():
             stats["output_size"] = output_file.stat().st_size
         
+        logger.debug(f"Summary stats calculated: {stats}")
         return stats
     
     def print_summary(self, output_file: Path):
@@ -68,4 +73,4 @@ class CLIProgressReporter:
         if stats["processing_time"]:
             print(f"Processing time: {stats['processing_time']:.2f} seconds", file=sys.stderr)
         
-        logging.info(f"Processing completed successfully: {stats}")
+        logger.info(f"Processing completed successfully: {stats}")

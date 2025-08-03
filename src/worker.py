@@ -4,6 +4,7 @@ import logging
 import os
 import stat
 import tempfile
+import time
 from pathlib import Path
 from typing import Set, Tuple
 
@@ -13,6 +14,8 @@ from .config import WorkerConfig
 from .core.file_counter import FileCounter
 from .core.file_processor import FileProcessor
 from .file_utils import is_binary_file, load_ignore_patterns, matches_file_type
+
+logger = logging.getLogger(__name__)
 
 
 class GeneratorWorker(QtCore.QObject):
@@ -31,21 +34,26 @@ class GeneratorWorker(QtCore.QObject):
         self._is_cancelled = False
         self.file_counter = FileCounter(config)
         self.file_processor = FileProcessor(config)
+        logger.debug(f"Worker initialized with config: {self.config}")
 
     def cancel(self) -> None:
         """Signals the worker to stop processing."""
         self._is_cancelled = True
         self.file_counter.cancel()
         self.file_processor.cancel()
-        logging.info("Cancellation requested for worker.")
+        logger.debug(f"Worker cancellation requested: {self._is_cancelled}")
+        logger.info("Cancellation requested for worker.")
 
     @QtCore.pyqtSlot()
     def run(self) -> None:
         """Main execution method for the worker thread."""
         error_message = ""
+        logger.info(f"Worker starting processing of {len(self.config.generation_options.selected_paths)} items")
 
         # Pre-scan phase to count matching files accurately
         self.status_updated.emit("Pre-scanning files...")
+        logger.debug("Starting pre-scan phase")
+        pre_scan_start_time = time.time()
         total_files = 0
         seen: Set[Tuple[int, int]] = set()
         self.config.generation_options.selected_paths.sort(key=lambda p: p.name.lower())
@@ -53,6 +61,7 @@ class GeneratorWorker(QtCore.QObject):
         for path in self.config.generation_options.selected_paths:
             if self._is_cancelled:
                 break
+            logger.debug(f"Pre-scanning item: {path.name}")
             try:
                 st = os.stat(path)
                 is_regular_file = stat.S_ISREG(st.st_mode)
@@ -127,17 +136,21 @@ class GeneratorWorker(QtCore.QObject):
                     )
 
             except (OSError, ValueError) as e:
-                logging.error(f"Worker: Error counting item {path.name}: {e}")
+                logger.error(f"Worker: Error counting item {path.name}: {e}")
                 continue
             except Exception as e:
-                logging.error(
+                logger.error(
                     f"Worker: Unexpected error counting item {path.name}: {e}",
                     exc_info=True,
                 )
                 continue
 
+        pre_scan_end_time = time.time()
+        logger.debug(f"Pre-scan phase finished in {pre_scan_end_time - pre_scan_start_time:.2f}s")
+        logger.info(f"Pre-scan completed: {total_files} files found")
+
         if self._is_cancelled:
-            logging.info("Worker cancelled during pre-scan phase.")
+            logger.info("Worker cancelled during pre-scan phase.")
             self.finished.emit("", "Operation cancelled.")
             return
 
@@ -149,13 +162,13 @@ class GeneratorWorker(QtCore.QObject):
         self.status_updated.emit("Processing...")
 
         # Processing phase
+        logger.debug("Starting processing phase")
+        processing_start_time = time.time()
         files_processed_count = 0
 
-        # Create a temporary file for streaming output
         temp_fd, temp_path = tempfile.mkstemp(suffix=".md", text=True)
         output_file = os.fdopen(temp_fd, "w", encoding="utf-8")
 
-        # Reset seen for processing
         seen = set()
         self.config.generation_options.selected_paths.sort(key=lambda p: p.name.lower())
 
@@ -163,6 +176,7 @@ class GeneratorWorker(QtCore.QObject):
             for path in self.config.generation_options.selected_paths:
                 if self._is_cancelled:
                     break
+                logger.debug(f"Processing item: {path.name}")
 
                 try:
                     st = os.stat(path)
@@ -197,7 +211,7 @@ class GeneratorWorker(QtCore.QObject):
 
                         dev_ino = (st.st_dev, st.st_ino)
                         if dev_ino in seen:
-                            logging.info(
+                            logger.info(
                                 f"Skipping duplicate file (same inode): {path}"
                             )
                             continue
@@ -221,10 +235,10 @@ class GeneratorWorker(QtCore.QObject):
                                     output_file.write(f"```{ext}\n")
                                     output_file.write(file_content)
                                     output_file.write("\n```\n\n")
-                                    output_file.flush()  # Ensure content is written
+                                    output_file.flush()
                                 except IOError as e:
                                     error_message = f"Error writing to output file: {e}"
-                                    logging.error(error_message)
+                                    logger.error(error_message)
                                     self.finished.emit("", error_message)
                                     output_file.close()
                                     os.unlink(temp_path)
@@ -236,7 +250,7 @@ class GeneratorWorker(QtCore.QObject):
                                     )
                                     self.progress_updated.emit(
                                         min(progress, 99)
-                                    )  # Keep it below 100 until the end
+                                    )
 
                     elif is_regular_dir:
                         if (
@@ -255,17 +269,15 @@ class GeneratorWorker(QtCore.QObject):
                             continue
 
                         current_dir_ignore_spec = load_ignore_patterns(path)
-                        # We pass a list to process_directory_recursive so it can be mutated
                         processed_counter_ref = [files_processed_count]
                         self.file_processor.process_directory_recursive(
                             path,
                             current_dir_ignore_spec,
-                            output_file,  # Pass the file object instead of the list
+                            output_file,
                             processed_counter_ref,
                             seen,
                         )
 
-                        # Update progress based on the mutated counter
                         newly_processed = (
                             processed_counter_ref[0] - files_processed_count
                         )
@@ -278,27 +290,28 @@ class GeneratorWorker(QtCore.QObject):
                                 self.progress_updated.emit(min(progress, 99))
 
                 except (OSError, ValueError) as e:
-                    logging.error(f"Worker: Error processing item {path.name}: {e}")
+                    logger.error(f"Worker: Error processing item {path.name}: {e}")
                     continue
                 except Exception as e:
-                    logging.error(
+                    logger.error(
                         f"Worker: Unexpected error processing item {path.name}: {e}",
                         exc_info=True,
                     )
                     error_message = f"Unexpected error during processing: {e}"
                     continue
 
+            processing_end_time = time.time()
+            logger.debug(f"Processing phase finished in {processing_end_time - processing_start_time:.2f}s")
+            logger.info(f"Processing phase completed: {files_processed_count} files processed")
+
             if self._is_cancelled:
-                logging.info("Worker cancelled during processing phase.")
+                logger.info("Worker cancelled during processing phase.")
                 self.finished.emit("", "Operation cancelled.")
                 return
 
             if not error_message:
                 self.progress_updated.emit(100)
 
-            logging.info(
-                f"Worker finished processing. Total files included: {files_processed_count}"
-            )
             output_file.close()
 
             if not self._is_cancelled and not error_message:
@@ -306,10 +319,10 @@ class GeneratorWorker(QtCore.QObject):
             else:
                 if os.path.exists(temp_path):
                     os.unlink(temp_path)
-                if not error_message:  # If we got here and no error but cancelled
+                if not error_message:
                     self.finished.emit("", "Operation cancelled.")
         except Exception as e:
-            logging.error(f"Worker error: {e}", exc_info=True)
+            logger.error(f"Worker error: {e}", exc_info=True)
             error_message = f"Error during processing: {e}"
             if "output_file" in locals() and not output_file.closed:
                 output_file.close()

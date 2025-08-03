@@ -6,9 +6,12 @@ from pathlib import Path
 from typing import Dict, List, Set, Tuple
 import pathspec
 
+logger = logging.getLogger(__name__)
+
 
 def load_ignore_patterns(directory: Path) -> pathspec.PathSpec | None:
     """Loads ignore patterns from various ignore files in the specified directory."""
+    logger.debug(f"Loading ignore patterns from: {directory}")
     patterns = []
     ignore_files = [".gitignore", ".npmignore", ".dockerignore"]
     for ig_file in ignore_files:
@@ -18,9 +21,8 @@ def load_ignore_patterns(directory: Path) -> pathspec.PathSpec | None:
                 with ignore_path.open("r", encoding="utf-8", errors="ignore") as f:
                     patterns.extend(f.readlines())
             except Exception as e:
-                logging.warning(f"Could not read {ignore_path}: {e}")
+                logger.warning(f"Could not read {ignore_path}: {e}")
 
-    # Also load .git/info/exclude if .git exists
     git_dir = directory / ".git"
     if git_dir.is_dir():
         exclude_path = git_dir / "info" / "exclude"
@@ -29,21 +31,22 @@ def load_ignore_patterns(directory: Path) -> pathspec.PathSpec | None:
                 with exclude_path.open("r", encoding="utf-8", errors="ignore") as f:
                     patterns.extend(f.readlines())
             except Exception as e:
-                logging.warning(f"Could not read {exclude_path}: {e}")
+                logger.warning(f"Could not read {exclude_path}: {e}")
 
     if patterns:
         try:
             return pathspec.PathSpec.from_lines(
-                pathspec.patterns.GitWildMatchPattern, patterns  # type: ignore[attr-defined]
+                pathspec.patterns.GitWildMatchPattern, patterns
             )
         except Exception as e:
-            logging.error(f"Error parsing ignore patterns from {directory}: {e}")
+            logger.error(f"Error parsing ignore patterns from {directory}: {e}")
             return None
     return None
 
 
 def load_global_gitignore() -> pathspec.PathSpec | None:
     """Load global gitignore patterns."""
+    logger.debug("Loading global gitignore patterns")
     global_patterns = []
     try:
         global_ignore = (
@@ -56,7 +59,7 @@ def load_global_gitignore() -> pathspec.PathSpec | None:
             with global_path.open("r", encoding="utf-8", errors="ignore") as f:
                 global_patterns = f.readlines()
     except Exception as e:
-        logging.warning(f"Could not load global gitignore: {e}")
+        logger.warning(f"Could not load global gitignore: {e}")
     
     return (
         pathspec.PathSpec.from_lines(
@@ -69,18 +72,19 @@ def load_global_gitignore() -> pathspec.PathSpec | None:
 
 def is_binary_file(filepath: Path) -> bool:
     """Check if a file is likely binary by looking for null bytes."""
+    logger.debug(f"Checking if file is binary: {filepath}")
     CHUNK_SIZE = 1024
     try:
         with filepath.open("rb") as f:
             chunk = f.read(CHUNK_SIZE)
         return b"\0" in chunk
     except OSError as e:
-        logging.warning(
+        logger.warning(
             f"Could not read start of file {filepath} to check if binary: {e}"
         )
         return True
     except Exception as e:
-        logging.error(
+        logger.error(
             f"Unexpected error checking if file is binary {filepath}: {e}",
             exc_info=True,
         )
@@ -91,100 +95,36 @@ def is_likely_text_file(filepath: Path) -> bool:
     """
     Detect if file is likely text based on name patterns and content.
     """
-    # Known text filenames without extensions
     text_filenames = {
-        "readme",
-        "license",
-        "licence",
-        "changelog",
-        "changes",
-        "authors",
-        "contributors",
-        "copying",
-        "install",
-        "news",
-        "todo",
-        "version",
-        "dockerfile",
-        "makefile",
-        "rakefile",
-        "gemfile",
-        "pipfile",
-        "procfile",
-        "vagrantfile",
-        "jenkinsfile",
-        "cname",
-        "notice",
-        "manifest",
-        "copyright",
+        "readme", "license", "licence", "changelog", "changes", "authors",
+        "contributors", "copying", "install", "news", "todo", "version",
+        "dockerfile", "makefile", "rakefile", "gemfile", "pipfile",
+        "procfile", "vagrantfile", "jenkinsfile", "cname", "notice",
+        "manifest", "copyright",
     }
 
-    # Check if it's a known text filename (case insensitive)
     if filepath.name.lower() in text_filenames:
         return not is_binary_file(filepath)
 
-    # Dotfiles are often config files (but skip .git, .DS_Store, etc.)
     if filepath.name.startswith(".") and len(filepath.name) > 1:
-        # Skip known binary or special dotfiles
         skip_dotfiles = {
-            ".git",
-            ".ds_store",
-            ".pyc",
-            ".pyo",
-            ".pyd",
-            ".so",
-            ".dylib",
-            ".dll",
+            ".git", ".ds_store", ".pyc", ".pyo", ".pyd", ".so", ".dylib", ".dll",
         }
         if filepath.name.lower() not in skip_dotfiles:
             return not is_binary_file(filepath)
 
-    # Files with no extension that aren't binary
     if not filepath.suffix:
         return not is_binary_file(filepath)
 
-    # Files with unusual extensions that might be text
     possible_text_extensions = {
-        ".ini",
-        ".cfg",
-        ".conf",
-        ".config",
-        ".properties",
-        ".env",
-        ".envrc",
-        ".ignore",
-        ".keep",
-        ".gitkeep",
-        ".npmignore",
-        ".dockerignore",
-        ".editorconfig",
-        ".flake8",
-        ".pylintrc",
-        ".prettierrc",
-        ".eslintrc",
-        ".stylelintrc",
-        ".babelrc",
-        ".npmrc",
-        ".yarnrc",
-        ".nvmrc",
-        ".ruby-version",
-        ".python-version",
-        ".node-version",
-        ".terraform",
-        ".tf",
-        ".tfvars",
-        ".ansible",
-        ".playbook",
-        ".vault",
-        ".j2",
-        ".jinja",
-        ".jinja2",
-        ".template",
-        ".tmpl",
-        ".tpl",
-        ".mustache",
-        ".hbs",
-        ".handlebars",
+        ".ini", ".cfg", ".conf", ".config", ".properties", ".env", ".envrc",
+        ".ignore", ".keep", ".gitkeep", ".npmignore", ".dockerignore",
+        ".editorconfig", ".flake8", ".pylintrc", ".prettierrc", ".eslintrc",
+        ".stylelintrc", ".babelrc", ".npmrc", ".yarnrc", ".nvmrc",
+        ".ruby-version", ".python-version", ".node-version", ".terraform",
+        ".tf", ".tfvars", ".ansible", ".playbook", ".vault", ".j2",
+        ".jinja", ".jinja2", ".template", ".tmpl", ".tpl", ".mustache",
+        ".hbs", ".handlebars",
     }
 
     if filepath.suffix.lower() in possible_text_extensions:
@@ -215,15 +155,13 @@ def matches_file_type(
     file_ext = filepath.suffix.lower()
     file_name = filepath.name.lower()
 
+    matches = False
     if file_name in selected_names:
-        return True
-    if file_ext in selected_exts:
-        return True
+        matches = True
+    elif file_ext in selected_exts:
+        matches = True
+    elif handle_other and file_name not in all_names and file_ext not in all_exts:
+        matches = is_likely_text_file(filepath)
 
-    # Handle "Other Text Files" logic
-    if handle_other:
-        # Check if the file does NOT match any of the known file types
-        if file_name not in all_names and file_ext not in all_exts:
-            return is_likely_text_file(filepath)
-
-    return False
+    logger.debug(f"File {filepath} matches criteria: {matches}")
+    return matches

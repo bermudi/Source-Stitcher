@@ -22,13 +22,13 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
+logger = logging.getLogger(__name__)
+
 
 def main():
     """Main application entry point."""
-    # Parse CLI arguments
+    logger.debug("Application starting.")
     args = parse_cli_arguments()
-    
-    # Initialize application settings
     app_settings = AppSettings()
 
     QtCore.QCoreApplication.setApplicationName(app_settings.window_title)
@@ -36,7 +36,7 @@ def main():
     QtCore.QCoreApplication.setApplicationVersion(app_settings.application_version)
 
     if args and args.cli:
-        # CLI mode - create CLI config and run
+        logger.debug("Running in CLI mode.")
         cli_config = create_cli_config_from_args(args)
         configure_logging(
             verbose=cli_config.verbose,
@@ -47,8 +47,7 @@ def main():
         exit_code = run_cli_mode(cli_config)
         sys.exit(exit_code)
     else:
-        # GUI mode
-        # Configure logging for GUI mode - use CLI args if provided
+        logger.debug("Running in GUI mode.")
         verbose = args.verbose if args else False
         quiet = args.quiet if args else False
         log_level = args.log_level if args else "INFO"
@@ -63,25 +62,19 @@ def main():
         app = QtWidgets.QApplication(sys.argv)
         settings = QtCore.QSettings(app_settings.organization_name, "SOTAConcatenator")
         
-        # Check if directory was provided via CLI argument
         if args and args.directory:
-            # Validate directory exists and is accessible
+            logger.debug(f"Directory provided via CLI argument: {args.directory}")
             if not args.directory.exists():
-                QtWidgets.QMessageBox.critical(
-                    None, "Error", f"Directory does not exist: {args.directory}"
-                )
+                QtWidgets.QMessageBox.critical(None, "Error", f"Directory does not exist: {args.directory}")
                 sys.exit(1)
             if not args.directory.is_dir():
-                QtWidgets.QMessageBox.critical(
-                    None, "Error", f"Path is not a directory: {args.directory}"
-                )
+                QtWidgets.QMessageBox.critical(None, "Error", f"Path is not a directory: {args.directory}")
                 sys.exit(1)
             
-            # Use directory from CLI argument
             working_dir = args.directory
             settings.setValue("last_directory", str(working_dir))
         else:
-            # Use existing directory selection dialog
+            logger.debug("No directory provided via CLI, opening selection dialog.")
             last_dir = settings.value("last_directory", str(Path.cwd()))
             selected_dir = QtWidgets.QFileDialog.getExistingDirectory(
                 None, "Select Project Directory To Concatenate", last_dir
@@ -89,9 +82,10 @@ def main():
 
             if selected_dir:
                 working_dir = Path(selected_dir)
+                logger.info(f"User selected directory: {working_dir}")
                 settings.setValue("last_directory", selected_dir)
             else:
-                logging.warning("No directory selected on startup. Exiting.")
+                logger.warning("No directory selected on startup. Exiting.")
                 sys.exit(0)
 
         window = FileConcatenator(working_dir=working_dir)
