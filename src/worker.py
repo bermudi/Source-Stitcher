@@ -325,21 +325,11 @@ class GeneratorWorker(QtCore.QObject):
             if not error_message:
                 self.progress_updated.emit(100)
 
-            # Generate and write tree structure
+            # Write only file contents (tree will be generated in dialogs.py)
             if processed_files and not self._is_cancelled:
-                tree_generator = ProjectTreeGenerator(self.config.generation_options.base_directory)
-                tree_content = tree_generator.generate_tree(processed_files)
-                
-                # Rewrite the file with tree and content
+                # Rewrite the file with only content
                 output_file.seek(0)
                 output_file.truncate()
-                
-                # Write tree
-                output_file.write("# Selected Files\n\n")
-                output_file.write("```\n")
-                output_file.write(tree_content)
-                output_file.write("\n```\n\n")
-                output_file.flush()
                 
                 # Write concatenated content
                 for path in processed_files:

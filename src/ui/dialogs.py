@@ -5,9 +5,12 @@ import os
 import shutil
 from datetime import datetime
 from pathlib import Path
+from typing import List
 
 from PyQt6 import QtCore, QtWidgets
 from atomicwrites import atomic_write
+
+from ..core.tree_generator import ProjectTreeGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +90,29 @@ class SaveFileDialog:
         logger.debug(f"Generated filename: {initial_filename}")
         return initial_filename
     
+    def _extract_file_paths_from_temp(self, temp_file_path: str, working_dir: Path) -> List[Path]:
+        """Extract file paths from the temporary file by parsing the file headers."""
+        processed_files = []
+        try:
+            with open(temp_file_path, "r", encoding="utf-8") as temp_file:
+                for line in temp_file:
+                    line = line.strip()
+                    if line.startswith("--- File: ") and line.endswith(" ---"):
+                        # Extract the relative path from "--- File: path/to/file.ext ---"
+                        rel_path_str = line[10:-4]  # Remove "--- File: " and " ---"
+                        try:
+                            full_path = working_dir / rel_path_str
+                            if full_path.exists():
+                                processed_files.append(full_path)
+                        except Exception as e:
+                            logger.warning(f"Could not process file path '{rel_path_str}': {e}")
+                            continue
+        except Exception as e:
+            logger.error(f"Error extracting file paths from temporary file: {e}")
+        
+        logger.debug(f"Extracted {len(processed_files)} file paths from temporary file.")
+        return processed_files
+    
     def _write_output_file(self, output_filename: str, temp_file_path: str, working_dir: Path, selected_language_names: list) -> None:
         """Write the final output file."""
         logger.debug(f"Writing output to file: {output_filename}")
@@ -105,6 +131,20 @@ class SaveFileDialog:
                 f.write("# Selected file types: All types\n")
             else:
                 f.write(f"# Selected file types: {', '.join(selected_language_names)}\n")
+            
+            # Generate and write tree structure before the separator
+            logger.debug("Generating tree structure from temporary file.")
+            processed_files = self._extract_file_paths_from_temp(temp_file_path, working_dir)
+            if processed_files:
+                tree_generator = ProjectTreeGenerator(working_dir)
+                tree_content = tree_generator.generate_tree(processed_files)
+                
+                f.write("\n# Selected Files\n\n")
+                f.write("```\n")
+                f.write(tree_content)
+                f.write("\n```\n\n")
+                f.flush()
+            
             f.write("\n" + "=" * 60 + "\n")
             f.write("START OF CONCATENATED CONTENT\n")
             f.write("=" * 60 + "\n\n")
