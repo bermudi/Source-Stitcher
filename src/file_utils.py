@@ -154,14 +154,36 @@ def matches_file_type(
     """Check if a file path matches the compiled filter sets."""
     file_ext = filepath.suffix.lower()
     file_name = filepath.name.lower()
+    
+    # Only log the full configuration once
+    if not hasattr(matches_file_type, '_logged_config'):
+        logger.debug("File type matching configuration:")
+        logger.debug(f"  - Selected extensions: {selected_exts}")
+        logger.debug(f"  - Selected names: {selected_names}")
+        logger.debug(f"  - Handle other files: {handle_other}")
+        matches_file_type._logged_config = True
 
     matches = False
+    reason = ""
+    
     if file_name in selected_names:
         matches = True
+        reason = f"file name matches selected name pattern"
     elif file_ext in selected_exts:
         matches = True
+        reason = f"file extension matches selected patterns"
     elif handle_other and file_name not in all_names and file_ext not in all_exts:
-        matches = is_likely_text_file(filepath)
+        is_text = is_likely_text_file(filepath)
+        matches = is_text
+        reason = f"file is {'a text' if is_text else 'not a text'} file (other files handling enabled)"
+    else:
+        reason = "no matching criteria met"
+        if not handle_other:
+            reason += " (other files handling is disabled)"
+        if file_name in all_names:
+            reason += " (file name is a known type but not selected)"
+        if file_ext in all_exts:
+            reason += " (file extension is a known type but not selected)"
 
-    logger.debug(f"File {filepath} matches criteria: {matches}")
+    logger.debug(f"File: {filepath.name} - {reason} - result: {matches}")
     return matches

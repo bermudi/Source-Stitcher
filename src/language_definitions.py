@@ -169,6 +169,8 @@ def get_language_extensions() -> Dict[str, List[str]]:
             ".sbt",  # Scala sbt
             # .NET / NuGet
             ".csproj",
+            # Python package management
+            "uv.lock",
             ".fsproj",
             ".vbproj",
             "packages.config",
