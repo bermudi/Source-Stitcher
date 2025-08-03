@@ -5,7 +5,7 @@ import os
 import stat
 import time
 from pathlib import Path
-from typing import List, Set, Tuple
+from typing import List, Optional, Set, Tuple
 import pathspec
 
 from ..config import WorkerConfig
@@ -37,6 +37,7 @@ class FileProcessor:
         output_file,
         files_processed_counter: List[int],
         seen: Set[Tuple[int, int]],
+        processed_files: Optional[List[Path]] = None,
     ) -> None:
         """
         Recursively process directory for files, appending to output_content.
@@ -174,6 +175,10 @@ class FileProcessor:
                     file_content = self.file_reader.get_file_content(full_path)
                     if file_content is None:
                         continue
+
+                    # Track processed file if list provided
+                    if processed_files is not None:
+                        processed_files.append(full_path)
 
                     relative_path_output = relative_path_to_base
                     ext = full_path.suffix[1:] if full_path.suffix else "txt"

@@ -6,13 +6,14 @@ import stat
 import tempfile
 import time
 from pathlib import Path
-from typing import Set, Tuple
+from typing import List, Set, Tuple
 
 from PyQt6 import QtCore
 
 from .config import WorkerConfig
 from .core.file_counter import FileCounter
 from .core.file_processor import FileProcessor
+from .core.tree_generator import ProjectTreeGenerator
 from .file_utils import is_binary_file, load_ignore_patterns, matches_file_type
 
 logger = logging.getLogger(__name__)
@@ -166,8 +167,18 @@ class GeneratorWorker(QtCore.QObject):
         processing_start_time = time.time()
         files_processed_count = 0
 
+        # Initialize list to track processed files
+        processed_files: List[Path] = []
+        
         temp_fd, temp_path = tempfile.mkstemp(suffix=".md", text=True)
         output_file = os.fdopen(temp_fd, "w", encoding="utf-8")
+
+        # Write initial summary
+        output_file.write(f"# Selected Files\n\n")
+        output_file.write("```\n")
+        output_file.write("Scanning files...\n")
+        output_file.write("```\n\n")
+        output_file.flush()
 
         seen = set()
         self.config.generation_options.selected_paths.sort(key=lambda p: p.name.lower())
@@ -227,6 +238,7 @@ class GeneratorWorker(QtCore.QObject):
                         ):
                             file_content = self.file_processor.file_reader.get_file_content(path)
                             if file_content is not None:
+                                processed_files.append(path)
                                 ext = path.suffix[1:] if path.suffix else "txt"
                                 try:
                                     output_file.write(
@@ -276,6 +288,7 @@ class GeneratorWorker(QtCore.QObject):
                             output_file,
                             processed_counter_ref,
                             seen,
+                            processed_files,
                         )
 
                         newly_processed = (
@@ -311,6 +324,38 @@ class GeneratorWorker(QtCore.QObject):
 
             if not error_message:
                 self.progress_updated.emit(100)
+
+            # Generate and write tree structure
+            if processed_files and not self._is_cancelled:
+                tree_generator = ProjectTreeGenerator(self.config.generation_options.base_directory)
+                tree_content = tree_generator.generate_tree(processed_files)
+                
+                # Rewrite the file with tree and content
+                output_file.seek(0)
+                output_file.truncate()
+                
+                # Write tree
+                output_file.write("# Selected Files\n\n")
+                output_file.write("```\n")
+                output_file.write(tree_content)
+                output_file.write("\n```\n\n")
+                output_file.flush()
+                
+                # Write concatenated content
+                for path in processed_files:
+                    try:
+                        rel_path = path.relative_to(self.config.generation_options.base_directory)
+                        file_content = self.file_processor.file_reader.get_file_content(path)
+                        if file_content is not None:
+                            ext = path.suffix[1:] if path.suffix else "txt"
+                            output_file.write(f"\n--- File: {rel_path} ---\n")
+                            output_file.write(f"```{ext}\n")
+                            output_file.write(file_content)
+                            output_file.write("\n```\n\n")
+                            output_file.flush()
+                    except (ValueError, IOError) as e:
+                        logger.error(f"Error writing file content for {path}: {e}")
+                        continue
 
             output_file.close()
 
