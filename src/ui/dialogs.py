@@ -119,35 +119,7 @@ class SaveFileDialog:
         logger.debug(f"Generated filename: {initial_filename}")
         return initial_filename
 
-    def _extract_file_paths_from_temp(
-        self, temp_file_path: str, working_dir: Path
-    ) -> List[Path]:
-        """Extract file paths from the temporary file by parsing the file headers."""
-        processed_files = []
-        try:
-            with open(temp_file_path, "r", encoding="utf-8") as temp_file:
-                for line in temp_file:
-                    line = line.strip()
-                    if line.startswith("--- File: ") and line.endswith(" ---"):
-                        # Extract the relative path from "--- File: path/to/file.ext ---"
-                        rel_path_str = line[10:-4]  # Remove "--- File: " and " ---"
-                        try:
-                            full_path = working_dir / rel_path_str
-                            if full_path.exists():
-                                processed_files.append(full_path)
-                        except Exception as e:
-                            logger.warning(
-                                f"Could not process file path '{rel_path_str}': {e}"
-                            )
-                            continue
-        except Exception as e:
-            logger.error(f"Error extracting file paths from temporary file: {e}")
-
-        logger.debug(
-            f"Extracted {len(processed_files)} file paths from temporary file."
-        )
-        return processed_files
-
+    
     def _write_output_file(
         self,
         output_filename: str,
@@ -169,103 +141,25 @@ class SaveFileDialog:
             )
             return
 
-        with atomic_write(output_path, mode="w", encoding="utf-8", overwrite=True) as f:
-            logger.debug("Writing file header.")
-
-            # Compute human-readable total size of the working directory
-            def _format_size(num_bytes: int) -> str:
-                for unit in ["bytes", "KB", "MB", "GB", "TB"]:
-                    if num_bytes < 1024.0 or unit == "TB":
-                        return (
-                            f"{num_bytes:.2f} {unit}"
-                            if unit != "bytes"
-                            else f"{int(num_bytes)} {unit}"
-                        )
-                    num_bytes /= 1024.0
-                return f"{num_bytes:.2f} TB"
-
-            def _dir_size_bytes(root: Path) -> int:
-                total = 0
-                try:
-                    for dirpath, dirnames, filenames in os.walk(
-                        root, followlinks=False
-                    ):
-                        # Skip hidden directories quickly
-                        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
-                        for name in filenames:
-                            if name.startswith("."):
-                                continue
-                            fp = Path(dirpath) / name
-                            try:
-                                if fp.is_file():
-                                    total += fp.stat().st_size
-                            except (OSError, PermissionError):
-                                continue
-                except Exception as e:
-                    logger.warning(f"Error computing directory size for {root}: {e}")
-                return total
-
-            total_bytes = _dir_size_bytes(working_dir)
-            human_size = _format_size(total_bytes)
-
-            f.write(f"# Concatenated Files from: {working_dir}\n")
-            f.write(f"# Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"# Total directory size: {human_size}\n")
-            if len(selected_language_names) == len(self.parent.language_extensions):
-                f.write("# Selected file types: All types\n")
-            else:
-                f.write(
-                    f"# Selected file types: {', '.join(selected_language_names)}\n"
-                )
-
-            # Generate and write tree structure
-            logger.debug("Generating tree structure from processed files list.")
-            if processed_files:
-                # Use passed processed files list (new optimized approach)
-                files_to_use = processed_files
-            else:
-                # Fallback to extracting from temp file (legacy approach)
-                logger.debug(
-                    "No processed files list provided, extracting from temporary file."
-                )
-                files_to_use = self._extract_file_paths_from_temp(
-                    temp_file_path, working_dir
-                )
-
-            if files_to_use:
-                tree_generator = ProjectTreeGenerator(working_dir)
-                tree_content = tree_generator.generate_tree(files_to_use)
-
-                f.write("\n# Selected Files\n\n")
-                f.write("```\n")
-                f.write(tree_content)
-                f.write("\n```\n\n")
-                f.flush()
-
-            f.write("\n" + "=" * 60 + "\n")
-            f.write("START OF CONCATENATED CONTENT\n")
-            f.write("=" * 60 + "\n\n")
-            f.flush()
-
-            logger.debug(f"Streaming content from temporary file: {temp_file_path}")
-            try:
+        # The temp file now contains the complete output with header, tree, and content
+        # Just copy it directly to the final location
+        logger.debug(f"Copying complete temp file to output: {output_filename}")
+        try:
+            with atomic_write(output_path, mode="w", encoding="utf-8", overwrite=True) as f:
                 with open(temp_file_path, "r", encoding="utf-8") as temp_file:
                     shutil.copyfileobj(temp_file, f)
-                f.write("\n" + "=" * 60 + "\n")
-                f.write("END OF CONCATENATED CONTENT\n")
-                f.write("=" * 60 + "\n")
-            except Exception as e:
-                error_msg = f"Error writing output file: {e}"
-                logger.error(error_msg, exc_info=True)
-                raise IOError(error_msg)
-            finally:
-                logger.debug(f"Removing temporary file: {temp_file_path}")
-                try:
-                    os.unlink(temp_file_path)
-                except OSError as e:
-                    logger.warning(
-                        f"Could not remove temporary file {temp_file_path}: {e}"
-                    )
+        except Exception as e:
+            error_msg = f"Error writing output file: {e}"
+            logger.error(error_msg, exc_info=True)
+            raise IOError(error_msg)
+        finally:
+            logger.debug(f"Removing temporary file: {temp_file_path}")
+            try:
+                os.unlink(temp_file_path)
+            except OSError as e:
+                logger.warning(
+                    f"Could not remove temporary file {temp_file_path}: {e}"
+                )
 
         logger.info(f"Successfully generated file: {output_filename}")
         QtWidgets.QMessageBox.information(

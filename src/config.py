@@ -84,6 +84,7 @@ class WorkerConfig:
 
     filter_settings: FilterSettings
     generation_options: GenerationOptions
+    selected_language_names: List[str] = field(default_factory=list)
     estimated_total_files: int = 0
     progress_update_interval: int = 10
     language_config_path: Optional[Path] = None

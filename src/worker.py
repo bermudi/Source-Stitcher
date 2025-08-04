@@ -1,7 +1,6 @@
 """Background worker thread for file processing."""
 
 import logging
-import os
 import tempfile
 import time
 from pathlib import Path
@@ -13,7 +12,7 @@ from .config import WorkerConfig
 from .core.file_walker import ProjectFileWalker
 from .core.language_loader import LanguageDefinitionLoader
 from .core.file_reader import FileReader
-from .core.tree_generator import ProjectTreeGenerator
+from .core.output_builder import HeaderBuilder, ContentStreamer
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +51,7 @@ class GeneratorWorker(QtCore.QObject):
 
     @QtCore.pyqtSlot()
     def run(self) -> None:
-        """Main execution method using unified file walker architecture."""
+        """Main execution method using streamlined single-pass architecture."""
         error_message = ""
         temp_path = ""
         processed_files: List[Path] = []
@@ -85,88 +84,37 @@ class GeneratorWorker(QtCore.QObject):
             logger.info(f"Discovery completed: {total_count} files found")
             self.pre_count_finished.emit(total_count)
 
-            # Phase 2: Processing - Process files from the discovered list
+            # Phase 2: Build header once before any file content is written
+            logger.debug("Building header")
+            header_builder = HeaderBuilder(
+                self.config.generation_options.base_directory,
+                file_list,
+                self.config.selected_language_names,
+            )
+            header = header_builder.build()
+
+            # Phase 3: Stream content directly to temp file in single pass
             self.status_updated.emit("Processing files...")
-            logger.debug("Starting processing phase")
+            logger.debug("Starting single-pass content streaming")
             processing_start_time = time.time()
 
-            temp_fd, temp_path = tempfile.mkstemp(suffix=".md", text=True)
+            # Open temp file once and write everything in order
+            with tempfile.NamedTemporaryFile(
+                suffix=".md", delete=False, mode="w", encoding="utf-8"
+            ) as fh:
+                temp_path = fh.name
+                
+                # Write header first
+                fh.write(header)
+                fh.flush()
 
-            with os.fdopen(temp_fd, "w", encoding="utf-8") as output_file:
-                # Write initial header
-                output_file.write(f"# Selected Files\n\n")
-                output_file.write("```\n")
-                output_file.write(f"Processing {total_count} files...\n")
-                output_file.write("```\n\n")
-                output_file.flush()
-
-                files_processed_count = 0
-
-                for file_path in file_list:
-                    if self._is_cancelled:
-                        break
-
-                    try:
-                        # Read file content
-                        file_content = self.file_reader.get_file_content(file_path)
-                        if file_content is not None:
-                            processed_files.append(file_path)
-
-                            # Write file content to output
-                            try:
-                                rel_path = file_path.relative_to(
-                                    self.config.generation_options.base_directory
-                                )
-                                ext = (
-                                    file_path.suffix[1:] if file_path.suffix else "txt"
-                                )
-
-                                output_file.write(f"\n--- File: {rel_path} ---\n")
-                                output_file.write(f"```{ext}\n")
-                                output_file.write(file_content)
-                                output_file.write("\n```\n\n")
-                                output_file.flush()
-
-                            except (ValueError, IOError) as e:
-                                logger.error(
-                                    f"Error writing file content for {file_path}: {e}"
-                                )
-                                continue
-
-                            files_processed_count += 1
-
-                            # Update progress
-                            if total_count > 0:
-                                progress = int(
-                                    (files_processed_count / total_count) * 100
-                                )
-                                self.progress_updated.emit(min(progress, 99))
-
-                    except Exception as e:
-                        logger.error(f"Error processing file {file_path}: {e}")
-                        continue
-
-                # Rewrite file with final content (remove initial header)
-                output_file.seek(0)
-                output_file.truncate()
-
-                for file_path in processed_files:
-                    try:
-                        rel_path = file_path.relative_to(
-                            self.config.generation_options.base_directory
-                        )
-                        file_content = self.file_reader.get_file_content(file_path)
-                        if file_content is not None:
-                            ext = file_path.suffix[1:] if file_path.suffix else "txt"
-                            output_file.write(f"\n--- File: {rel_path} ---\n")
-                            output_file.write(f"```{ext}\n")
-                            output_file.write(file_content)
-                            output_file.write("\n```\n\n")
-                    except Exception as e:
-                        logger.error(
-                            f"Error rewriting file content for {file_path}: {e}"
-                        )
-                        continue
+                # Stream file content directly
+                content_streamer = ContentStreamer(self.file_reader, fh)
+                files_processed_count, processed_files = content_streamer.stream_files(
+                    file_list,
+                    self.config.generation_options.base_directory,
+                    lambda pct: self.progress_updated.emit(min(pct, 99)) if not self._is_cancelled else None,
+                )
 
             processing_end_time = time.time()
             logger.debug(
@@ -178,8 +126,8 @@ class GeneratorWorker(QtCore.QObject):
 
             if self._is_cancelled:
                 logger.info("Worker cancelled during processing phase.")
-                if os.path.exists(temp_path):
-                    os.unlink(temp_path)
+                if temp_path and Path(temp_path).exists():
+                    Path(temp_path).unlink()
                 self.finished.emit("", [], "Operation cancelled.")
                 return
 
@@ -194,8 +142,8 @@ class GeneratorWorker(QtCore.QObject):
             error_message = f"Error during processing: {e}"
 
             # Clean up temp file on error
-            if temp_path and os.path.exists(temp_path):
-                os.unlink(temp_path)
+            if temp_path and Path(temp_path).exists():
+                Path(temp_path).unlink()
 
             self.finished.emit("", [], error_message)
 

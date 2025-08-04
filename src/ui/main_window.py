@@ -718,8 +718,11 @@ class FileConcatenator(QtWidgets.QMainWindow):
         generation_options = GenerationOptions(
             selected_paths=selected_paths, base_directory=self.working_dir
         )
+        selected_language_names = self.get_selected_language_names()
         worker_config = WorkerConfig(
-            filter_settings=filter_settings, generation_options=generation_options
+            filter_settings=filter_settings,
+            generation_options=generation_options,
+            selected_language_names=selected_language_names,
         )
         logger.debug(f"WorkerConfig created: {worker_config}")
 
