@@ -8,16 +8,16 @@ from typing import List, Optional, Set, Tuple
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
-from ..config import FilterSettings, GenerationOptions, WorkerConfig, AppSettings
-from ..file_utils import (
+from source_stitcher.config import FilterSettings, GenerationOptions, WorkerConfig, AppSettings
+from source_stitcher.file_utils import (
     build_filter_sets,
     load_ignore_patterns,
     load_global_gitignore,
     matches_file_type,
 )
-from ..core.language_loader import LanguageDefinitionLoader
-from .dialogs import SaveFileDialog
-from ..worker import GeneratorWorker
+from source_stitcher.core.language_loader import LanguageDefinitionLoader
+from source_stitcher.ui.dialogs import SaveFileDialog
+from source_stitcher.worker import GeneratorWorker
 
 logger = logging.getLogger(__name__)
 

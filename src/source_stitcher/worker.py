@@ -8,11 +8,11 @@ from typing import List
 
 from PyQt6 import QtCore
 
-from .config import WorkerConfig
-from .core.file_walker import ProjectFileWalker
-from .core.language_loader import LanguageDefinitionLoader
-from .core.file_reader import FileReader
-from .core.output_builder import HeaderBuilder, ContentStreamer
+from source_stitcher.config import WorkerConfig
+from source_stitcher.core.file_walker import ProjectFileWalker
+from source_stitcher.core.language_loader import LanguageDefinitionLoader
+from source_stitcher.core.file_reader import FileReader
+from source_stitcher.core.output_builder import HeaderBuilder, ContentStreamer
 
 logger = logging.getLogger(__name__)
 

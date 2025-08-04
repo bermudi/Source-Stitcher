@@ -12,15 +12,15 @@ dependencies = [
 ]
 
 [project.scripts]
-source-stitcher = "main:main"
+source-stitcher = "source_stitcher.main:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["main"]
-packages = ["src"]
+package-dir = {"" = "src"}
+packages = ["source_stitcher"]
 
 [dependency-groups]
 dev = [
