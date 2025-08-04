@@ -16,10 +16,10 @@ except ImportError:
 def get_version() -> str:
     """
     Get the application version from pyproject.toml.
-    
+
     Returns:
         Version string from pyproject.toml.
-        
+
     Raises:
         RuntimeError: If version cannot be determined from pyproject.toml.
     """
@@ -27,31 +27,33 @@ def get_version() -> str:
         # Find pyproject.toml - look in current directory and parent directories
         current_path = Path(__file__).parent
         pyproject_path = None
-        
+
         # Search up the directory tree for pyproject.toml
         for path in [current_path, current_path.parent, current_path.parent.parent]:
             potential_path = path / "pyproject.toml"
             if potential_path.exists():
                 pyproject_path = potential_path
                 break
-        
+
         if not pyproject_path:
             raise RuntimeError("pyproject.toml not found in project directory tree")
-        
+
         if tomllib is None:
-            raise RuntimeError("tomllib not available - install tomli for Python < 3.11")
-        
+            raise RuntimeError(
+                "tomllib not available - install tomli for Python < 3.11"
+            )
+
         # Read and parse pyproject.toml
         with open(pyproject_path, "rb") as f:
             data = tomllib.load(f)
-        
+
         version = data.get("project", {}).get("version")
         if version:
             logging.debug(f"Version loaded from pyproject.toml: {version}")
             return version
         else:
             raise RuntimeError("Version not found in pyproject.toml [project] section")
-            
+
     except Exception as e:
         if isinstance(e, RuntimeError):
             raise
@@ -61,10 +63,10 @@ def get_version() -> str:
 def get_app_name() -> str:
     """
     Get the application name from pyproject.toml.
-    
+
     Returns:
         Application name from pyproject.toml.
-        
+
     Raises:
         RuntimeError: If app name cannot be determined from pyproject.toml.
     """
@@ -72,29 +74,31 @@ def get_app_name() -> str:
         # Find pyproject.toml
         current_path = Path(__file__).parent
         pyproject_path = None
-        
+
         for path in [current_path, current_path.parent, current_path.parent.parent]:
             potential_path = path / "pyproject.toml"
             if potential_path.exists():
                 pyproject_path = potential_path
                 break
-        
+
         if not pyproject_path:
             raise RuntimeError("pyproject.toml not found in project directory tree")
-            
+
         if tomllib is None:
-            raise RuntimeError("tomllib not available - install tomli for Python < 3.11")
-        
+            raise RuntimeError(
+                "tomllib not available - install tomli for Python < 3.11"
+            )
+
         # Read and parse pyproject.toml
         with open(pyproject_path, "rb") as f:
             data = tomllib.load(f)
-        
+
         name = data.get("project", {}).get("name", "")
         if name:
             return name.replace("-", " ").title()
         else:
             raise RuntimeError("Name not found in pyproject.toml [project] section")
-            
+
     except Exception as e:
         if isinstance(e, RuntimeError):
             raise

@@ -60,7 +60,7 @@ def load_global_gitignore() -> pathspec.PathSpec | None:
                 global_patterns = f.readlines()
     except Exception as e:
         logger.warning(f"Could not load global gitignore: {e}")
-    
+
     return (
         pathspec.PathSpec.from_lines(
             pathspec.patterns.GitWildMatchPattern, global_patterns
@@ -96,11 +96,30 @@ def is_likely_text_file(filepath: Path) -> bool:
     Detect if file is likely text based on name patterns and content.
     """
     text_filenames = {
-        "readme", "license", "licence", "changelog", "changes", "authors",
-        "contributors", "copying", "install", "news", "todo", "version",
-        "dockerfile", "makefile", "rakefile", "gemfile", "pipfile",
-        "procfile", "vagrantfile", "jenkinsfile", "cname", "notice",
-        "manifest", "copyright",
+        "readme",
+        "license",
+        "licence",
+        "changelog",
+        "changes",
+        "authors",
+        "contributors",
+        "copying",
+        "install",
+        "news",
+        "todo",
+        "version",
+        "dockerfile",
+        "makefile",
+        "rakefile",
+        "gemfile",
+        "pipfile",
+        "procfile",
+        "vagrantfile",
+        "jenkinsfile",
+        "cname",
+        "notice",
+        "manifest",
+        "copyright",
     }
 
     if filepath.name.lower() in text_filenames:
@@ -108,7 +127,14 @@ def is_likely_text_file(filepath: Path) -> bool:
 
     if filepath.name.startswith(".") and len(filepath.name) > 1:
         skip_dotfiles = {
-            ".git", ".ds_store", ".pyc", ".pyo", ".pyd", ".so", ".dylib", ".dll",
+            ".git",
+            ".ds_store",
+            ".pyc",
+            ".pyo",
+            ".pyd",
+            ".so",
+            ".dylib",
+            ".dll",
         }
         if filepath.name.lower() not in skip_dotfiles:
             return not is_binary_file(filepath)
@@ -117,14 +143,46 @@ def is_likely_text_file(filepath: Path) -> bool:
         return not is_binary_file(filepath)
 
     possible_text_extensions = {
-        ".ini", ".cfg", ".conf", ".config", ".properties", ".env", ".envrc",
-        ".ignore", ".keep", ".gitkeep", ".npmignore", ".dockerignore",
-        ".editorconfig", ".flake8", ".pylintrc", ".prettierrc", ".eslintrc",
-        ".stylelintrc", ".babelrc", ".npmrc", ".yarnrc", ".nvmrc",
-        ".ruby-version", ".python-version", ".node-version", ".terraform",
-        ".tf", ".tfvars", ".ansible", ".playbook", ".vault", ".j2",
-        ".jinja", ".jinja2", ".template", ".tmpl", ".tpl", ".mustache",
-        ".hbs", ".handlebars",
+        ".ini",
+        ".cfg",
+        ".conf",
+        ".config",
+        ".properties",
+        ".env",
+        ".envrc",
+        ".ignore",
+        ".keep",
+        ".gitkeep",
+        ".npmignore",
+        ".dockerignore",
+        ".editorconfig",
+        ".flake8",
+        ".pylintrc",
+        ".prettierrc",
+        ".eslintrc",
+        ".stylelintrc",
+        ".babelrc",
+        ".npmrc",
+        ".yarnrc",
+        ".nvmrc",
+        ".ruby-version",
+        ".python-version",
+        ".node-version",
+        ".terraform",
+        ".tf",
+        ".tfvars",
+        ".ansible",
+        ".playbook",
+        ".vault",
+        ".j2",
+        ".jinja",
+        ".jinja2",
+        ".template",
+        ".tmpl",
+        ".tpl",
+        ".mustache",
+        ".hbs",
+        ".handlebars",
     }
 
     if filepath.suffix.lower() in possible_text_extensions:
@@ -154,9 +212,9 @@ def matches_file_type(
     """Check if a file path matches the compiled filter sets."""
     file_ext = filepath.suffix.lower()
     file_name = filepath.name.lower()
-    
+
     # Only log the full configuration once
-    if not hasattr(matches_file_type, '_logged_config'):
+    if not hasattr(matches_file_type, "_logged_config"):
         logger.debug("File type matching configuration:")
         logger.debug(f"  - Selected extensions: {selected_exts}")
         logger.debug(f"  - Selected names: {selected_names}")
@@ -165,7 +223,7 @@ def matches_file_type(
 
     matches = False
     reason = ""
-    
+
     if file_name in selected_names:
         matches = True
         reason = f"file name matches selected name pattern"

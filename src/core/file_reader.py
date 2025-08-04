@@ -13,7 +13,9 @@ logger = logging.getLogger(__name__)
 class FileReader:
     """Handles reading files with multiple encoding fallbacks."""
 
-    def __init__(self, encodings: Optional[List[str]] = None, default_encoding: str = "utf-8"):
+    def __init__(
+        self, encodings: Optional[List[str]] = None, default_encoding: str = "utf-8"
+    ):
         """Initialize with encoding preferences."""
         self.encodings = encodings or [
             "utf-8",
@@ -53,14 +55,18 @@ class FileReader:
                 try:
                     content = filepath.read_text(encoding=encoding, errors="strict")
                 except MemoryError:
-                    logger.info(f"Fallback to chunked reading for large file: {filepath.name}")
+                    logger.info(
+                        f"Fallback to chunked reading for large file: {filepath.name}"
+                    )
                     content = ""
                     with filepath.open("r", encoding=encoding, errors="strict") as f:
                         for chunk in iter(lambda: f.read(1024 * 1024), ""):
                             content += chunk
 
                 read_time = time.time() - start_time
-                logger.debug(f"Successfully decoded with {encoding} in {read_time:.3f}s")
+                logger.debug(
+                    f"Successfully decoded with {encoding} in {read_time:.3f}s"
+                )
 
                 if not content.strip():
                     logger.info(f"Skipping empty file: {filepath.name}")

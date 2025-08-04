@@ -42,7 +42,7 @@ def main():
             verbose=cli_config.verbose,
             quiet=cli_config.quiet,
             log_level=cli_config.log_level,
-            is_cli_mode=True
+            is_cli_mode=True,
         )
         exit_code = run_cli_mode(cli_config)
         sys.exit(exit_code)
@@ -51,26 +51,27 @@ def main():
         verbose = args.verbose if args else False
         quiet = args.quiet if args else False
         log_level = args.log_level if args else "INFO"
-        
+
         configure_logging(
-            verbose=verbose,
-            quiet=quiet,
-            log_level=log_level,
-            is_cli_mode=False
+            verbose=verbose, quiet=quiet, log_level=log_level, is_cli_mode=False
         )
-        
+
         app = QtWidgets.QApplication(sys.argv)
         settings = QtCore.QSettings(app_settings.organization_name, "SOTAConcatenator")
-        
+
         if args and args.directory:
             logger.debug(f"Directory provided via CLI argument: {args.directory}")
             if not args.directory.exists():
-                QtWidgets.QMessageBox.critical(None, "Error", f"Directory does not exist: {args.directory}")
+                QtWidgets.QMessageBox.critical(
+                    None, "Error", f"Directory does not exist: {args.directory}"
+                )
                 sys.exit(1)
             if not args.directory.is_dir():
-                QtWidgets.QMessageBox.critical(None, "Error", f"Path is not a directory: {args.directory}")
+                QtWidgets.QMessageBox.critical(
+                    None, "Error", f"Path is not a directory: {args.directory}"
+                )
                 sys.exit(1)
-            
+
             working_dir = args.directory
             settings.setValue("last_directory", str(working_dir))
         else:

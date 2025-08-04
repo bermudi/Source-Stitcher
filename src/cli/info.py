@@ -7,38 +7,44 @@ from ..language_definitions import get_language_extensions
 def show_supported_file_types():
     """Display all supported file types with detailed information."""
     language_extensions = get_language_extensions()
-    
+
     print("Source Stitcher - Supported File Types")
     print("=" * 60)
     print()
-    
+
     # Calculate statistics
-    total_categories = len([k for k in language_extensions.keys() if k != "Other Text Files"])
-    total_extensions = sum(len([ext for ext in exts if ext.startswith('.')]) 
-                          for exts in language_extensions.values())
-    total_filenames = sum(len([ext for ext in exts if not ext.startswith('.')]) 
-                         for exts in language_extensions.values())
-    
+    total_categories = len(
+        [k for k in language_extensions.keys() if k != "Other Text Files"]
+    )
+    total_extensions = sum(
+        len([ext for ext in exts if ext.startswith(".")])
+        for exts in language_extensions.values()
+    )
+    total_filenames = sum(
+        len([ext for ext in exts if not ext.startswith(".")])
+        for exts in language_extensions.values()
+    )
+
     print(f"Total categories: {total_categories}")
     print(f"Total extensions: {total_extensions}")
     print(f"Total specific filenames: {total_filenames}")
     print()
-    
+
     # Display each category
     for lang_name, extensions in language_extensions.items():
         if lang_name == "Other Text Files":
             continue  # Skip the special category
-            
+
         print(f"{lang_name}:")
         print("-" * len(lang_name))
-        
+
         # Group extensions and filenames
-        exts = sorted([ext for ext in extensions if ext.startswith('.')])
-        files = sorted([ext for ext in extensions if not ext.startswith('.')])
-        
+        exts = sorted([ext for ext in extensions if ext.startswith(".")])
+        files = sorted([ext for ext in extensions if not ext.startswith(".")])
+
         if exts:
             # Format extensions in columns for better readability
-            ext_str = ', '.join(exts)
+            ext_str = ", ".join(exts)
             if len(ext_str) > 70:
                 # Split into multiple lines if too long
                 ext_lines = []
@@ -53,10 +59,10 @@ def show_supported_file_types():
                 print("\n".join(ext_lines))
             else:
                 print(f"  Extensions: {ext_str}")
-        
+
         if files:
             # Format filenames similarly
-            files_str = ', '.join(files)
+            files_str = ", ".join(files)
             if len(files_str) > 70:
                 file_lines = []
                 current_line = "  Files: "
@@ -70,9 +76,9 @@ def show_supported_file_types():
                 print("\n".join(file_lines))
             else:
                 print(f"  Files: {files_str}")
-        
+
         print()
-    
+
     # Usage examples
     print("Usage Examples:")
     print("=" * 15)

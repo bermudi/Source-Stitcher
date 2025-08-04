@@ -9,7 +9,12 @@ from typing import List, Optional, Set, Tuple
 from PyQt6 import QtCore, QtGui, QtWidgets
 
 from ..config import FilterSettings, GenerationOptions, WorkerConfig, AppSettings
-from ..file_utils import build_filter_sets, load_ignore_patterns, load_global_gitignore, matches_file_type
+from ..file_utils import (
+    build_filter_sets,
+    load_ignore_patterns,
+    load_global_gitignore,
+    matches_file_type,
+)
 from ..core.language_loader import LanguageDefinitionLoader
 from .dialogs import SaveFileDialog
 from ..worker import GeneratorWorker
@@ -31,8 +36,13 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.app_settings = AppSettings()
         self.initial_base_dir = (working_dir or Path.cwd()).resolve()
         self.working_dir = self.initial_base_dir
-        self.setWindowTitle(f"{self.app_settings.window_title} v{self.app_settings.application_version} - [{self.working_dir.name}]")
-        self.resize(self.app_settings.default_window_width, self.app_settings.default_window_height)
+        self.setWindowTitle(
+            f"{self.app_settings.window_title} v{self.app_settings.application_version} - [{self.working_dir.name}]"
+        )
+        self.resize(
+            self.app_settings.default_window_width,
+            self.app_settings.default_window_height,
+        )
 
         self.ignore_spec = load_ignore_patterns(self.working_dir)
         self.global_ignore_spec = load_global_gitignore()
@@ -189,7 +199,9 @@ class FileConcatenator(QtWidgets.QMainWindow):
                         (selected_exts if e.startswith(".") else selected_names).add(
                             e.lower()
                         )
-        logger.debug(f"Selected filters: {len(selected_exts)} extensions, {len(selected_names)} filenames, other={handle_other}")
+        logger.debug(
+            f"Selected filters: {len(selected_exts)} extensions, {len(selected_names)} filenames, other={handle_other}"
+        )
         return selected_exts, selected_names, handle_other
 
     def get_selected_language_names(self) -> List[str]:
@@ -229,14 +241,28 @@ class FileConcatenator(QtWidgets.QMainWindow):
         if self.is_generating:
             return
         code_categories = {
-            "Python", "JavaScript/TypeScript", "Web Frontend", "Java/Kotlin", "C/C++",
-            "C#/.NET", "Ruby", "PHP", "Go", "Rust", "Swift/Objective-C", "Shell Scripts",
+            "Python",
+            "JavaScript/TypeScript",
+            "Web Frontend",
+            "Java/Kotlin",
+            "C/C++",
+            "C#/.NET",
+            "Ruby",
+            "PHP",
+            "Go",
+            "Rust",
+            "Swift/Objective-C",
+            "Shell Scripts",
         }
         for i in range(self.language_list_widget.count()):
             item = self.language_list_widget.item(i)
             assert item is not None
             language_name = item.data(self.LANGUAGE_ROLE)
-            item.setCheckState(QtCore.Qt.CheckState.Checked if language_name in code_categories else QtCore.Qt.CheckState.Unchecked)
+            item.setCheckState(
+                QtCore.Qt.CheckState.Checked
+                if language_name in code_categories
+                else QtCore.Qt.CheckState.Unchecked
+            )
 
     def select_docs_config(self) -> None:
         """Select documentation and configuration categories."""
@@ -244,24 +270,38 @@ class FileConcatenator(QtWidgets.QMainWindow):
         if self.is_generating:
             return
         docs_config_categories = {
-            "Documentation", "Config & Data", "DevOps & CI", "Version Control",
-            "Build & Package", "Other Text Files",
+            "Documentation",
+            "Config & Data",
+            "DevOps & CI",
+            "Version Control",
+            "Build & Package",
+            "Other Text Files",
         }
         for i in range(self.language_list_widget.count()):
             item = self.language_list_widget.item(i)
             assert item is not None
             language_name = item.data(self.LANGUAGE_ROLE)
-            item.setCheckState(QtCore.Qt.CheckState.Checked if language_name in docs_config_categories else QtCore.Qt.CheckState.Unchecked)
+            item.setCheckState(
+                QtCore.Qt.CheckState.Checked
+                if language_name in docs_config_categories
+                else QtCore.Qt.CheckState.Unchecked
+            )
 
     def update_ui_state(self) -> None:
         """Updates UI elements based on the current state."""
         logger.debug("Updating UI state.")
         try:
             display_path = self.working_dir.relative_to(self.initial_base_dir)
-            title_path = (f".../{display_path}" if display_path != Path(".") else self.initial_base_dir.name)
+            title_path = (
+                f".../{display_path}"
+                if display_path != Path(".")
+                else self.initial_base_dir.name
+            )
         except ValueError:
             title_path = str(self.working_dir)
-        self.setWindowTitle(f"{self.app_settings.window_title} v{self.app_settings.application_version} - [{title_path}]")
+        self.setWindowTitle(
+            f"{self.app_settings.window_title} v{self.app_settings.application_version} - [{title_path}]"
+        )
         self.current_path_label.setText(str(self.working_dir))
         self.current_path_label.setCursorPosition(0)
         is_root = self.working_dir.parent == self.working_dir
@@ -290,28 +330,40 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.file_tree_widget.clear()
         self.populate_directory(self.working_dir, None)
 
-    def add_dir_node(self, parent_item: Optional[QtWidgets.QTreeWidgetItem], path: Path) -> QtWidgets.QTreeWidgetItem:
+    def add_dir_node(
+        self, parent_item: Optional[QtWidgets.QTreeWidgetItem], path: Path
+    ) -> QtWidgets.QTreeWidgetItem:
         """Adds a directory node to the tree."""
         node = QtWidgets.QTreeWidgetItem([path.name])
         node.setFlags(node.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
         node.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
         node.setData(0, self.PATH_ROLE, path)
-        node.setIcon(0, self.icon_provider.icon(QtWidgets.QFileIconProvider.IconType.Folder))
-        node.setChildIndicatorPolicy(QtWidgets.QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
+        node.setIcon(
+            0, self.icon_provider.icon(QtWidgets.QFileIconProvider.IconType.Folder)
+        )
+        node.setChildIndicatorPolicy(
+            QtWidgets.QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator
+        )
         if parent_item:
             parent_item.addChild(node)
         else:
             self.file_tree_widget.addTopLevelItem(node)
         return node
 
-    def add_file_node(self, parent_item: Optional[QtWidgets.QTreeWidgetItem], path: Path) -> None:
+    def add_file_node(
+        self, parent_item: Optional[QtWidgets.QTreeWidgetItem], path: Path
+    ) -> None:
         """Adds a file node to the tree."""
         try:
             qfileinfo = QtCore.QFileInfo(str(path))
             specific_icon = self.icon_provider.icon(qfileinfo)
         except Exception:
             specific_icon = QtGui.QIcon()
-        item_icon = specific_icon if not specific_icon.isNull() else self.icon_provider.icon(QtWidgets.QFileIconProvider.IconType.File)
+        item_icon = (
+            specific_icon
+            if not specific_icon.isNull()
+            else self.icon_provider.icon(QtWidgets.QFileIconProvider.IconType.File)
+        )
         item = QtWidgets.QTreeWidgetItem([path.name])
         item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
         item.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
@@ -344,7 +396,9 @@ class FileConcatenator(QtWidgets.QMainWindow):
             self._update_parent_check_state(parent)
             parent = parent.parent()
 
-    def populate_directory(self, directory: Path, parent_item: Optional[QtWidgets.QTreeWidgetItem]) -> None:
+    def populate_directory(
+        self, directory: Path, parent_item: Optional[QtWidgets.QTreeWidgetItem]
+    ) -> None:
         """Populate the tree widget with files and directories for one level."""
         logger.debug(f"Populating directory: {directory}")
         selected_exts, selected_names, handle_other = self.get_selected_filter_sets()
@@ -356,7 +410,9 @@ class FileConcatenator(QtWidgets.QMainWindow):
                 try:
                     resolved = item_path.resolve()
                     if not str(resolved).startswith(str(self.working_dir.resolve())):
-                        logger.warning(f"Rejected path outside project root: {resolved}")
+                        logger.warning(
+                            f"Rejected path outside project root: {resolved}"
+                        )
                         continue
                 except Exception as e:
                     logger.warning(f"Error resolving path {item_path}: {e}")
@@ -366,9 +422,13 @@ class FileConcatenator(QtWidgets.QMainWindow):
                     relative_path_str_for_ignore = str(relative_path)
                 except ValueError:
                     relative_path_str_for_ignore = entry.name
-                if entry.is_dir(follow_symlinks=False) and not relative_path_str_for_ignore.endswith("/"):
+                if entry.is_dir(
+                    follow_symlinks=False
+                ) and not relative_path_str_for_ignore.endswith("/"):
                     relative_path_str_for_ignore += "/"
-                if self.ignore_spec and self.ignore_spec.match_file(relative_path_str_for_ignore):
+                if self.ignore_spec and self.ignore_spec.match_file(
+                    relative_path_str_for_ignore
+                ):
                     continue
                 if entry.name.startswith("."):
                     continue
@@ -382,14 +442,22 @@ class FileConcatenator(QtWidgets.QMainWindow):
                 except OSError:
                     continue
                 entries.append((entry, item_path))
-            entries.sort(key=lambda x: (not x[0].is_dir(follow_symlinks=True), x[0].name.lower()))
+            entries.sort(
+                key=lambda x: (not x[0].is_dir(follow_symlinks=True), x[0].name.lower())
+            )
             for entry, item_path in entries:
                 if entry.is_dir(follow_symlinks=True):
                     self.add_dir_node(parent_item, item_path)
                 elif entry.is_file(follow_symlinks=True):
-                    if not (selected_exts or selected_names or handle_other) or matches_file_type(
-                        item_path, selected_exts, selected_names,
-                        self.ALL_EXTENSIONS, self.ALL_FILENAMES, handle_other
+                    if not (
+                        selected_exts or selected_names or handle_other
+                    ) or matches_file_type(
+                        item_path,
+                        selected_exts,
+                        selected_names,
+                        self.ALL_EXTENSIONS,
+                        self.ALL_FILENAMES,
+                        handle_other,
                     ):
                         self.add_file_node(parent_item, item_path)
         except PermissionError as e:
@@ -409,7 +477,9 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.ignore_spec = load_ignore_patterns(self.working_dir)
         self.populate_file_list()
 
-    def handle_item_double_click(self, item: QtWidgets.QTreeWidgetItem, column: int) -> None:
+    def handle_item_double_click(
+        self, item: QtWidgets.QTreeWidgetItem, column: int
+    ) -> None:
         """Navigate into directory."""
         logger.debug(f"Item double-clicked: {item.text(0)}")
         if self.is_generating:
@@ -426,14 +496,28 @@ class FileConcatenator(QtWidgets.QMainWindow):
                     self.search_entry.clear()
             except PermissionError:
                 logger.warning(f"Permission denied trying to navigate into {path_data}")
-                QtWidgets.QMessageBox.warning(self, "Access Denied", f"Cannot open directory:\n{path_data.name}\n\nPermission denied.")
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Access Denied",
+                    f"Cannot open directory:\n{path_data.name}\n\nPermission denied.",
+                )
             except FileNotFoundError:
-                logger.warning(f"Directory not found (deleted?) on double click: {path_data}")
-                QtWidgets.QMessageBox.warning(self, "Not Found", f"Directory not found:\n{path_data.name}")
+                logger.warning(
+                    f"Directory not found (deleted?) on double click: {path_data}"
+                )
+                QtWidgets.QMessageBox.warning(
+                    self, "Not Found", f"Directory not found:\n{path_data.name}"
+                )
                 self.refresh_files()
             except Exception as e:
-                logger.error(f"Error navigating into directory {path_data}: {e}", exc_info=True)
-                QtWidgets.QMessageBox.warning(self, "Navigation Error", f"Could not open directory:\n{path_data.name}\n\n{e}")
+                logger.error(
+                    f"Error navigating into directory {path_data}: {e}", exc_info=True
+                )
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Navigation Error",
+                    f"Could not open directory:\n{path_data.name}\n\n{e}",
+                )
 
     def go_up_directory(self) -> None:
         """Navigate up."""
@@ -449,14 +533,28 @@ class FileConcatenator(QtWidgets.QMainWindow):
                 self.refresh_files()
                 self.search_entry.clear()
             except PermissionError:
-                logger.warning(f"Permission denied trying to navigate up to {parent_dir}")
-                QtWidgets.QMessageBox.warning(self, "Access Denied", f"Cannot open parent directory:\n{parent_dir}\n\nPermission denied.")
+                logger.warning(
+                    f"Permission denied trying to navigate up to {parent_dir}"
+                )
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Access Denied",
+                    f"Cannot open parent directory:\n{parent_dir}\n\nPermission denied.",
+                )
             except FileNotFoundError:
                 logger.warning(f"Parent directory not found (deleted?): {parent_dir}")
-                QtWidgets.QMessageBox.warning(self, "Not Found", f"Parent directory not found:\n{parent_dir}")
+                QtWidgets.QMessageBox.warning(
+                    self, "Not Found", f"Parent directory not found:\n{parent_dir}"
+                )
             except Exception as e:
-                logger.error(f"Error navigating up to directory {parent_dir}: {e}", exc_info=True)
-                QtWidgets.QMessageBox.warning(self, "Navigation Error", f"Could not open parent directory:\n{parent_dir}\n\n{e}")
+                logger.error(
+                    f"Error navigating up to directory {parent_dir}: {e}", exc_info=True
+                )
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Navigation Error",
+                    f"Could not open parent directory:\n{parent_dir}\n\n{e}",
+                )
 
     def select_all(self) -> None:
         """Select all checkable items."""
@@ -474,13 +572,17 @@ class FileConcatenator(QtWidgets.QMainWindow):
 
     def _set_all_items_checked(self, checked: bool) -> None:
         """Recursively set the checked state of all items."""
-        check_state = (QtCore.Qt.CheckState.Checked if checked else QtCore.Qt.CheckState.Unchecked)
+        check_state = (
+            QtCore.Qt.CheckState.Checked if checked else QtCore.Qt.CheckState.Unchecked
+        )
         for i in range(self.file_tree_widget.topLevelItemCount()):
             item = self.file_tree_widget.topLevelItem(i)
             if item is not None:
                 self._set_item_checked_recursive(item, check_state)
 
-    def _set_item_checked_recursive(self, item: QtWidgets.QTreeWidgetItem, check_state: QtCore.Qt.CheckState) -> None:
+    def _set_item_checked_recursive(
+        self, item: QtWidgets.QTreeWidgetItem, check_state: QtCore.Qt.CheckState
+    ) -> None:
         """Recursively set the checked state of an item and its children."""
         if item.flags() & QtCore.Qt.ItemFlag.ItemIsUserCheckable:
             item.setCheckState(0, check_state)
@@ -501,7 +603,9 @@ class FileConcatenator(QtWidgets.QMainWindow):
             self._update_parent_check_state(parent)
             parent = parent.parent()
 
-    def _set_children_check_state(self, item: QtWidgets.QTreeWidgetItem, state: QtCore.Qt.CheckState) -> None:
+    def _set_children_check_state(
+        self, item: QtWidgets.QTreeWidgetItem, state: QtCore.Qt.CheckState
+    ) -> None:
         for i in range(item.childCount()):
             child = item.child(i)
             if child is not None:
@@ -513,14 +617,18 @@ class FileConcatenator(QtWidgets.QMainWindow):
         checked_count, total_count, has_partial = 0, 0, False
         for i in range(parent.childCount()):
             child = parent.child(i)
-            if child is not None and child.flags() & QtCore.Qt.ItemFlag.ItemIsUserCheckable:
+            if (
+                child is not None
+                and child.flags() & QtCore.Qt.ItemFlag.ItemIsUserCheckable
+            ):
                 total_count += 1
                 child_state = child.checkState(0)
                 if child_state == QtCore.Qt.CheckState.Checked:
                     checked_count += 1
                 elif child_state == QtCore.Qt.CheckState.PartiallyChecked:
                     has_partial = True
-        if total_count == 0: return
+        if total_count == 0:
+            return
         if checked_count == total_count and not has_partial:
             parent.setCheckState(0, QtCore.Qt.CheckState.Checked)
         elif checked_count == 0 and not has_partial:
@@ -537,13 +645,23 @@ class FileConcatenator(QtWidgets.QMainWindow):
                 resolved = item_path.resolve()
                 try:
                     if not resolved.is_relative_to(self.working_dir.resolve()):
-                        logger.warning(f"Rejected path outside project root: {resolved}")
+                        logger.warning(
+                            f"Rejected path outside project root: {resolved}"
+                        )
                         return paths
                 except AttributeError:
                     try:
-                        working_dir_parts, resolved_parts = self.working_dir.resolve().parts, resolved.parts
-                        if resolved_parts[: len(working_dir_parts)] != working_dir_parts:
-                            logger.warning(f"Rejected path outside project root (fallback): {resolved}")
+                        working_dir_parts, resolved_parts = (
+                            self.working_dir.resolve().parts,
+                            resolved.parts,
+                        )
+                        if (
+                            resolved_parts[: len(working_dir_parts)]
+                            != working_dir_parts
+                        ):
+                            logger.warning(
+                                f"Rejected path outside project root (fallback): {resolved}"
+                            )
                             return paths
                     except Exception as e:
                         logger.warning(f"Error in path comparison: {e}")
@@ -569,12 +687,16 @@ class FileConcatenator(QtWidgets.QMainWindow):
 
         selected_exts, selected_names, handle_other = self.get_selected_filter_sets()
         if not selected_exts and not selected_names and not handle_other:
-            QtWidgets.QMessageBox.warning(self, "No File Types", "Please select at least one file type.")
+            QtWidgets.QMessageBox.warning(
+                self, "No File Types", "Please select at least one file type."
+            )
             return
 
         selected_paths = self._collect_selected_paths_recursive()
         if not selected_paths:
-            QtWidgets.QMessageBox.warning(self, "No Selection", "Please select at least one file or directory.")
+            QtWidgets.QMessageBox.warning(
+                self, "No Selection", "Please select at least one file or directory."
+            )
             return
 
         self.is_generating = True
@@ -584,13 +706,21 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.progress_bar.setFormat("Starting...")
 
         filter_settings = FilterSettings(
-            selected_extensions=selected_exts, selected_filenames=selected_names,
-            all_known_extensions=self.ALL_EXTENSIONS, all_known_filenames=self.ALL_FILENAMES,
-            handle_other_text_files=handle_other, ignore_spec=self.ignore_spec,
-            global_ignore_spec=self.global_ignore_spec, search_text=self.search_entry.text(),
+            selected_extensions=selected_exts,
+            selected_filenames=selected_names,
+            all_known_extensions=self.ALL_EXTENSIONS,
+            all_known_filenames=self.ALL_FILENAMES,
+            handle_other_text_files=handle_other,
+            ignore_spec=self.ignore_spec,
+            global_ignore_spec=self.global_ignore_spec,
+            search_text=self.search_entry.text(),
         )
-        generation_options = GenerationOptions(selected_paths=selected_paths, base_directory=self.working_dir)
-        worker_config = WorkerConfig(filter_settings=filter_settings, generation_options=generation_options)
+        generation_options = GenerationOptions(
+            selected_paths=selected_paths, base_directory=self.working_dir
+        )
+        worker_config = WorkerConfig(
+            filter_settings=filter_settings, generation_options=generation_options
+        )
         logger.debug(f"WorkerConfig created: {worker_config}")
 
         self.worker_thread = QtCore.QThread()
@@ -650,9 +780,13 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.progress_bar.setFormat(message + " %p%")
 
     @QtCore.pyqtSlot(str, list, str)
-    def handle_generation_finished(self, temp_file_path: str, processed_files: List[Path], error_message: str) -> None:
+    def handle_generation_finished(
+        self, temp_file_path: str, processed_files: List[Path], error_message: str
+    ) -> None:
         """Slot to handle the finished signal from the worker."""
-        logger.info(f"Generator worker finished. Temp file: '{temp_file_path}', Processed files: {len(processed_files)}, Error: '{error_message}'")
+        logger.info(
+            f"Generator worker finished. Temp file: '{temp_file_path}', Processed files: {len(processed_files)}, Error: '{error_message}'"
+        )
         if not error_message:
             self.progress_bar.setValue(100)
             self.progress_bar.setFormat("Finalizing...")
@@ -662,18 +796,33 @@ class FileConcatenator(QtWidgets.QMainWindow):
             self.progress_bar.setFormat("Error")
         if error_message:
             if "cancel" not in error_message.lower():
-                QtWidgets.QMessageBox.warning(self, "Generation Error", f"An error occurred:\n{error_message}")
+                QtWidgets.QMessageBox.warning(
+                    self, "Generation Error", f"An error occurred:\n{error_message}"
+                )
         elif not temp_file_path:
-            QtWidgets.QMessageBox.information(self, "Finished", "No processable content found in the selected items matching the filters.")
+            QtWidgets.QMessageBox.information(
+                self,
+                "Finished",
+                "No processable content found in the selected items matching the filters.",
+            )
         else:
             try:
                 selected_language_names = self.get_selected_language_names()
                 # Pass processed files list to save dialog for improved performance
-                self.save_dialog.save_generated_file(temp_file_path, self.working_dir, selected_language_names, processed_files)
+                self.save_dialog.save_generated_file(
+                    temp_file_path,
+                    self.working_dir,
+                    selected_language_names,
+                    processed_files,
+                )
             except Exception as e:
                 error_message = str(e)
                 logger.error(f"Error saving file: {error_message}", exc_info=True)
-                QtWidgets.QMessageBox.critical(self, "Error Saving File", f"Failed to save output file: {error_message}")
+                QtWidgets.QMessageBox.critical(
+                    self,
+                    "Error Saving File",
+                    f"Failed to save output file: {error_message}",
+                )
 
     def generation_cleanup(self) -> None:
         """Slot called when the thread finishes, regardless of reason."""
@@ -702,12 +851,17 @@ class FileConcatenator(QtWidgets.QMainWindow):
         logger.debug("Close event triggered.")
         if self.is_generating and self.worker_thread and self.worker_thread.isRunning():
             reply = QtWidgets.QMessageBox.question(
-                self, "Confirm Exit", "A generation task is running. Are you sure you want to exit?",
-                QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+                self,
+                "Confirm Exit",
+                "A generation task is running. Are you sure you want to exit?",
+                QtWidgets.QMessageBox.StandardButton.Yes
+                | QtWidgets.QMessageBox.StandardButton.No,
                 QtWidgets.QMessageBox.StandardButton.No,
             )
             if reply == QtWidgets.QMessageBox.StandardButton.Yes:
-                logger.info("Window close requested during generation. Attempting cancellation.")
+                logger.info(
+                    "Window close requested during generation. Attempting cancellation."
+                )
                 if self.worker:
                     self.worker.cancel()
                 event.accept()

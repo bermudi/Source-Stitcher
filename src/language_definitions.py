@@ -231,7 +231,5 @@ def get_language_extensions() -> Dict[str, List[str]]:
             "flake.nix",  # Nix flakes
             "build.pyz",  # PEX / Pants
         ],
-        "Other Text Files": [
-            "*other*"
-        ],  # Special category for unmatched text files
+        "Other Text Files": ["*other*"],  # Special category for unmatched text files
     }
