@@ -46,15 +46,21 @@ def run_cli_mode(cli_config: CLIConfig) -> int:
             quiet=cli_config.quiet
         )
         
-        completion_state = {"finished": False, "temp_file": None, "error": None}
+        completion_state = {
+            "finished": False,
+            "temp_file": None,
+            "processed_files": [],
+            "error": None
+        }
         
-        def on_finished(temp_file: str, error_message: str):
-            """Handle worker completion."""
-            logger.debug(f"Worker finished - temp_file: {temp_file}, error: {error_message}")
+        def on_finished(temp_file: str, processed_files: list, error_message: str):
+            """Handle worker completion with new signature (temp_path, processed_files, error)."""
+            logger.debug(f"Worker finished - temp_file: {temp_file}, processed_files: {len(processed_files) if processed_files else 0}, error: {error_message}")
             if temp_file:
                 logger.debug(f"Temporary file created: {temp_file}")
             completion_state["finished"] = True
             completion_state["temp_file"] = temp_file
+            completion_state["processed_files"] = processed_files or []
             completion_state["error"] = error_message
             app.quit()
         
