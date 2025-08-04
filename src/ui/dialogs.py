@@ -171,9 +171,46 @@ class SaveFileDialog:
 
         with atomic_write(output_path, mode="w", encoding="utf-8", overwrite=True) as f:
             logger.debug("Writing file header.")
+
+            # Compute human-readable total size of the working directory
+            def _format_size(num_bytes: int) -> str:
+                for unit in ["bytes", "KB", "MB", "GB", "TB"]:
+                    if num_bytes < 1024.0 or unit == "TB":
+                        return (
+                            f"{num_bytes:.2f} {unit}"
+                            if unit != "bytes"
+                            else f"{int(num_bytes)} {unit}"
+                        )
+                    num_bytes /= 1024.0
+                return f"{num_bytes:.2f} TB"
+
+            def _dir_size_bytes(root: Path) -> int:
+                total = 0
+                try:
+                    for dirpath, dirnames, filenames in os.walk(
+                        root, followlinks=False
+                    ):
+                        # Skip hidden directories quickly
+                        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+                        for name in filenames:
+                            if name.startswith("."):
+                                continue
+                            fp = Path(dirpath) / name
+                            try:
+                                if fp.is_file():
+                                    total += fp.stat().st_size
+                            except (OSError, PermissionError):
+                                continue
+                except Exception as e:
+                    logger.warning(f"Error computing directory size for {root}: {e}")
+                return total
+
+            total_bytes = _dir_size_bytes(working_dir)
+            human_size = _format_size(total_bytes)
+
             f.write(f"# Concatenated Files from: {working_dir}\n")
             f.write(f"# Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"# Total directory size: {working_dir.name}\n")
+            f.write(f"# Total directory size: {human_size}\n")
             if len(selected_language_names) == len(self.parent.language_extensions):
                 f.write("# Selected file types: All types\n")
             else:
