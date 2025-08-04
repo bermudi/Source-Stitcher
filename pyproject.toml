@@ -1,6 +1,6 @@
 [project]
 name = "source-stitcher"
-version = "1.1.0b2"
+version = "2.0.0a1"
 description = "Source Stitcher seamlessly combines multiple files into a single, unified markdown document. Save time and effort by effortlessly merging code, text, and other file types."
 readme = "README.md"
 requires-python = ">=3.10"
