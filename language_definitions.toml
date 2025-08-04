@@ -1,0 +1,93 @@
+# Source-Stitcher Language Definitions
+# Users can customize this file to add or modify supported file types
+# Each language section can have 'extensions', 'filenames', and 'description' fields
+
+[Python]
+extensions = [".py", ".pyw", ".pyx", ".pyi"]
+filenames = ["requirements.txt", "setup.py", "setup.cfg", "pyproject.toml", "pipfile"]
+description = "Python source files and configuration"
+
+[JavaScript_TypeScript]
+extensions = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"]
+filenames = ["package.json", "package-lock.json", "yarn.lock"]
+description = "JavaScript and TypeScript files"
+
+[Web_Frontend]
+extensions = [".html", ".htm", ".css", ".scss", ".sass", ".less", ".vue", ".svelte", ".astro"]
+filenames = []
+description = "Web Frontend source files and configuration"
+
+[Java_Kotlin]
+extensions = [".java", ".kt", ".kts", ".gradle"]
+filenames = ["pom.xml", "build.gradle", "gradle.properties"]
+description = "Java/Kotlin source files and configuration"
+
+[C_CPP]
+extensions = [".c", ".cpp", ".cxx", ".cc", ".h", ".hpp", ".hxx", ".cmake"]
+filenames = ["makefile", "cmakelists.txt"]
+description = "C/C++ source files and configuration"
+
+[CSharp_NET]
+extensions = [".cs", ".fs", ".vb", ".csproj", ".fsproj", ".vbproj", ".sln"]
+filenames = []
+description = "C#/.NET source files and configuration"
+
+[Ruby]
+extensions = [".rb", ".rake", ".gemspec", ".ru"]
+filenames = ["gemfile", "gemfile.lock", "rakefile"]
+description = "Ruby source files and configuration"
+
+[PHP]
+extensions = [".php", ".phtml", ".php3", ".php4", ".php5"]
+filenames = ["composer.json", "composer.lock"]
+description = "PHP source files and configuration"
+
+[Go]
+extensions = [".go", ".mod", ".sum"]
+filenames = ["go.mod", "go.sum"]
+description = "Go source files and configuration"
+
+[Rust]
+extensions = [".rs"]
+filenames = ["cargo.toml", "cargo.lock"]
+description = "Rust source files and configuration"
+
+[Swift_Objective_C]
+extensions = [".swift", ".m", ".mm", ".h"]
+filenames = ["package.swift", "podfile", "podfile.lock"]
+description = "Swift/Objective-C source files and configuration"
+
+[Shell_Scripts]
+extensions = [".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd"]
+filenames = []
+description = "Shell Scripts source files and configuration"
+
+[Config_Data]
+extensions = [".json", ".yaml", ".yml", ".toml", ".xml", ".ini", ".cfg", ".conf", ".config", ".properties", ".plist", ".env", ".envrc"]
+filenames = []
+description = "Config & Data source files and configuration"
+
+[Documentation]
+extensions = [".md", ".markdown", ".rst", ".txt", ".adoc", ".org"]
+filenames = ["readme", "changelog", "license", "authors"]
+description = "Documentation source files and configuration"
+
+[DevOps_CI]
+extensions = [".dockerfile", ".tf", ".tfvars"]
+filenames = ["dockerfile", ".dockerignore", "docker-compose.yml", "docker-compose.yaml", ".travis.yml", ".gitlab-ci.yml", ".github", ".circleci", ".appveyor.yml", ".azure-pipelines.yml", "jenkinsfile", "vagrantfile", ".terraform"]
+description = "DevOps & CI source files and configuration"
+
+[Version_Control]
+extensions = []
+filenames = [".gitignore", ".gitattributes", ".gitmodules", ".gitkeep"]
+description = "Version Control source files and configuration"
+
+[Build_Package]
+extensions = [".ninja", ".bazel", ".bzl", ".buck", ".cmake", ".sbt", ".csproj", ".fsproj", ".vbproj"]
+filenames = ["makefile", "cmakelists.txt", "build", "meson.build", "meson_options.txt", "build.xml", "ivy.xml", "configure.ac", "configure.in", "build.gradle", "settings.gradle", "gradle.properties", "gradlew", "gradlew.bat", "pom.xml", "build.sbt", "packages.config", "nuget.config", "package.swift", "package.resolved", "go.mod", "go.sum", "go.work", "go.work.sum", "cargo.toml", "cargo.lock", "composer.json", "composer.lock", "gemfile", "gemfile.lock", "gemfile", "gemfile.lock", "rakefile", "pyproject.toml", "pipfile", "pipfile.lock", "poetry.lock", "requirements.txt", "requirements-dev.txt", "requirements-test.txt", "setup.py", "setup.cfg", "environment.yml", "package.json", "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", ".yarnrc", ".yarnrc.yml", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".pnpmfile.cjs", "bun.lockb", "rush.json", "lerna.json", "turbo.json", "turbo.yaml", "flake.lock", "flake.nix", "build.pyz", "uv.lock"]
+description = "Build & Package source files and configuration"
+
+[Other_Text_Files]
+extensions = []
+filenames = ["*other*"]
+description = "Other Text Files source files and configuration"

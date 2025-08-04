@@ -86,3 +86,4 @@ class WorkerConfig:
     generation_options: GenerationOptions
     estimated_total_files: int = 0
     progress_update_interval: int = 10
+    language_config_path: Optional[Path] = None

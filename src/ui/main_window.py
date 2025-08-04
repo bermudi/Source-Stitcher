@@ -10,7 +10,7 @@ from PyQt6 import QtCore, QtGui, QtWidgets
 
 from ..config import FilterSettings, GenerationOptions, WorkerConfig, AppSettings
 from ..file_utils import build_filter_sets, load_ignore_patterns, load_global_gitignore, matches_file_type
-from ..language_definitions import get_language_extensions
+from ..core.language_loader import LanguageDefinitionLoader
 from .dialogs import SaveFileDialog
 from ..worker import GeneratorWorker
 
@@ -42,7 +42,9 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.worker: Optional[GeneratorWorker] = None
         self.is_generating = False
 
-        self.language_extensions = get_language_extensions()
+        # Initialize language definition loader
+        self.language_loader = LanguageDefinitionLoader()
+        self.language_extensions = self.language_loader.load_definitions()
         self.ALL_EXTENSIONS, self.ALL_FILENAMES = build_filter_sets(
             self.language_extensions
         )
@@ -596,6 +598,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         assert self.worker is not None and self.worker_thread is not None
         self.worker.moveToThread(self.worker_thread)
 
+        self.worker.discovery_progress.connect(self.handle_discovery_progress)
         self.worker.pre_count_finished.connect(self.handle_pre_count)
         self.worker.progress_updated.connect(self.handle_progress_update)
         self.worker.status_updated.connect(self.handle_status_update)
@@ -635,15 +638,21 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.progress_bar.setValue(value)
 
     @QtCore.pyqtSlot(str)
+    def handle_discovery_progress(self, message: str) -> None:
+        """Slot to handle the discovery_progress signal."""
+        logger.debug(f"Discovery progress: {message}")
+        self.progress_bar.setFormat(message)
+
+    @QtCore.pyqtSlot(str)
     def handle_status_update(self, message: str) -> None:
         """Slot to handle the status_updated signal."""
         logger.info(f"Status update: {message}")
         self.progress_bar.setFormat(message + " %p%")
 
-    @QtCore.pyqtSlot(str, str)
-    def handle_generation_finished(self, temp_file_path: str, error_message: str) -> None:
+    @QtCore.pyqtSlot(str, list, str)
+    def handle_generation_finished(self, temp_file_path: str, processed_files: List[Path], error_message: str) -> None:
         """Slot to handle the finished signal from the worker."""
-        logger.info(f"Generator worker finished. Temp file: '{temp_file_path}', Error: '{error_message}'")
+        logger.info(f"Generator worker finished. Temp file: '{temp_file_path}', Processed files: {len(processed_files)}, Error: '{error_message}'")
         if not error_message:
             self.progress_bar.setValue(100)
             self.progress_bar.setFormat("Finalizing...")
@@ -659,7 +668,8 @@ class FileConcatenator(QtWidgets.QMainWindow):
         else:
             try:
                 selected_language_names = self.get_selected_language_names()
-                self.save_dialog.save_generated_file(temp_file_path, self.working_dir, selected_language_names)
+                # Pass processed files list to save dialog for improved performance
+                self.save_dialog.save_generated_file(temp_file_path, self.working_dir, selected_language_names, processed_files)
             except Exception as e:
                 error_message = str(e)
                 logger.error(f"Error saving file: {error_message}", exc_info=True)

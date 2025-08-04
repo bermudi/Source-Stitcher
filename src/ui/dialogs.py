@@ -22,7 +22,7 @@ class SaveFileDialog:
         self.parent = parent_window
         logger.debug("SaveFileDialog initialized.")
     
-    def save_generated_file(self, temp_file_path: str, working_dir: Path, selected_language_names: list) -> None:
+    def save_generated_file(self, temp_file_path: str, working_dir: Path, selected_language_names: list, processed_files: list = None) -> None:
         """Handles the save file dialog and writing the output."""
         desktop_path = self._find_desktop_path()
         initial_filename = self._generate_filename(working_dir, selected_language_names)
@@ -50,7 +50,7 @@ class SaveFileDialog:
             return
 
         try:
-            self._write_output_file(output_filename, temp_file_path, working_dir, selected_language_names)
+            self._write_output_file(output_filename, temp_file_path, working_dir, selected_language_names, processed_files)
         except Exception as e:
             logger.error(f"Error writing output file {output_filename}: {e}", exc_info=True)
             QtWidgets.QMessageBox.critical(self.parent, "Error", f"Could not write output file:\n{output_filename}\n\n{e}")
@@ -113,7 +113,7 @@ class SaveFileDialog:
         logger.debug(f"Extracted {len(processed_files)} file paths from temporary file.")
         return processed_files
     
-    def _write_output_file(self, output_filename: str, temp_file_path: str, working_dir: Path, selected_language_names: list) -> None:
+    def _write_output_file(self, output_filename: str, temp_file_path: str, working_dir: Path, selected_language_names: list, processed_files: list = None) -> None:
         """Write the final output file."""
         logger.debug(f"Writing output to file: {output_filename}")
         output_path = Path(output_filename)
@@ -132,12 +132,19 @@ class SaveFileDialog:
             else:
                 f.write(f"# Selected file types: {', '.join(selected_language_names)}\n")
             
-            # Generate and write tree structure before the separator
-            logger.debug("Generating tree structure from temporary file.")
-            processed_files = self._extract_file_paths_from_temp(temp_file_path, working_dir)
+            # Generate and write tree structure
+            logger.debug("Generating tree structure from processed files list.")
             if processed_files:
+                # Use passed processed files list (new optimized approach)
+                files_to_use = processed_files
+            else:
+                # Fallback to extracting from temp file (legacy approach)
+                logger.debug("No processed files list provided, extracting from temporary file.")
+                files_to_use = self._extract_file_paths_from_temp(temp_file_path, working_dir)
+            
+            if files_to_use:
                 tree_generator = ProjectTreeGenerator(working_dir)
-                tree_content = tree_generator.generate_tree(processed_files)
+                tree_content = tree_generator.generate_tree(files_to_use)
                 
                 f.write("\n# Selected Files\n\n")
                 f.write("```\n")
