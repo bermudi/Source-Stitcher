@@ -15,7 +15,10 @@ logger = logging.getLogger(__name__)
 class LanguageDefinitionLoader:
     """
     Loads language definitions from TOML configuration files.
-    Supports fallback to hardcoded definitions if TOML file is missing.
+
+    Single source of truth: TOML.
+    If the TOML file is missing or invalid, we create a default TOML file
+    (derived from a minimal built-in seed) and then load from it.
     """
 
     def __init__(self, config_path: Optional[Path] = None):
@@ -34,22 +37,34 @@ class LanguageDefinitionLoader:
 
     def load_definitions(self) -> Dict[str, List[str]]:
         """
-        Load language definitions from TOML file or fallback to hardcoded definitions.
+        Load language definitions from TOML file.
 
         Returns:
             Dictionary mapping language names to lists of extensions/filenames
         """
         if self._definitions is None:
-            self._definitions = (
-                self._load_from_toml() or self._get_fallback_definitions()
-            )
+            data = self._load_from_toml()
+            if data is None:
+                logger.warning(
+                    "Language TOML missing or invalid. Creating default file."
+                )
+                # Create default file then attempt to load again
+                self.create_default_toml_file(self.config_path)
+                data = self._load_from_toml()
+                if data is None:
+                    # As a last resort, use a tiny built-in seed to keep app functional
+                    logger.error(
+                        "Failed to load language definitions after creating default TOML. Using built-in minimal seed."
+                    )
+                    data = self._get_minimal_seed_definitions()
+
+            self._definitions = data
 
         # Convert TOML structure to the expected format
-        result = {}
+        result: Dict[str, List[str]] = {}
         for lang_name, lang_data in self._definitions.items():
-            extensions = lang_data.get("extensions", [])
-            filenames = lang_data.get("filenames", [])
-            # Combine extensions and filenames into a single list (legacy format)
+            extensions = list(lang_data.get("extensions", []))  # type: ignore[assignment]
+            filenames = list(lang_data.get("filenames", []))  # type: ignore[assignment]
             result[lang_name] = extensions + filenames
 
         logger.debug(f"Loaded definitions for {len(result)} languages")
@@ -79,42 +94,25 @@ class LanguageDefinitionLoader:
             logger.error(f"Error loading TOML config from {self.config_path}: {e}")
             return None
 
-    def _get_fallback_definitions(self) -> Dict[str, Dict[str, Union[List[str], str]]]:
+    def _get_minimal_seed_definitions(
+        self,
+    ) -> Dict[str, Dict[str, Union[List[str], str]]]:
         """
-        Get hardcoded fallback language definitions.
-
-        Returns:
-            Dictionary of language definitions in TOML-like structure
+        Provide a minimal built-in seed of definitions to keep the app operational
+        if TOML cannot be loaded or created for any reason.
         """
-        logger.info("Using fallback hardcoded language definitions")
-
-        # Import the existing language definitions as fallback
-        from ..language_definitions import get_language_extensions
-
-        legacy_definitions = get_language_extensions()
-
-        # Convert legacy format to TOML-like structure
-        toml_structure = {}
-        for lang_name, items in legacy_definitions.items():
-            extensions = []
-            filenames = []
-
-            for item in items:
-                if item == "*other*":
-                    # Special case for "Other Text Files"
-                    continue
-                elif item.startswith("."):
-                    extensions.append(item)
-                else:
-                    filenames.append(item)
-
-            toml_structure[lang_name] = {
-                "extensions": extensions,
-                "filenames": filenames,
-                "description": f"{lang_name} source files and configuration",
-            }
-
-        return toml_structure
+        return {
+            "Python": {
+                "extensions": [".py"],
+                "filenames": ["pyproject.toml", "requirements.txt"],
+                "description": "Python source files and configuration",
+            },
+            "Other Text Files": {
+                "extensions": [],
+                "filenames": ["*other*"],
+                "description": "Other text files",
+            },
+        }
 
     def get_all_extensions(self) -> Set[str]:
         """
@@ -194,8 +192,11 @@ class LanguageDefinitionLoader:
         """
         output_path = output_path or self.config_path
 
-        # Get fallback definitions in TOML structure
-        definitions = self._get_fallback_definitions()
+        # Use a rich default by reading existing TOML if present; otherwise seed with minimal defaults
+        existing = self._load_from_toml()
+        definitions = (
+            existing if existing is not None else self._get_minimal_seed_definitions()
+        )
 
         # Create TOML content
         toml_content = [
