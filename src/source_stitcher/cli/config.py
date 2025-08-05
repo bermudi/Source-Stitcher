@@ -91,6 +91,7 @@ class CLIConfig:
             ignore_spec=ignore_spec,
             global_ignore_spec=None,
             search_text="",
+            include_hidden=self.include_hidden,
         )
 
     def to_generation_options(self) -> GenerationOptions:
@@ -123,6 +124,7 @@ class CLIConfig:
             encodings=encodings,
             default_encoding=self.encoding,
             line_ending=line_ending,
+            recursive=self.recursive,
         )
 
     def _calculate_selected_files(

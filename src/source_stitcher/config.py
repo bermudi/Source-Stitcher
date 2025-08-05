@@ -36,6 +36,8 @@ class FilterSettings:
     ignore_spec: Optional[pathspec.PathSpec] = None
     global_ignore_spec: Optional[pathspec.PathSpec] = None
     search_text: str = ""
+    # When True, hidden files and directories (those beginning with '.') are included
+    include_hidden: bool = False
 
 
 @dataclass
@@ -51,6 +53,8 @@ class GenerationOptions:
     encodings: Optional[List[str]] = None
     default_encoding: str = "utf-8"
     line_ending: str = "\n"
+    # When False, only the top-level of each selected path directory is scanned (no recursion)
+    recursive: bool = True
 
     def __post_init__(self):
         logger.debug("Initializing GenerationOptions")

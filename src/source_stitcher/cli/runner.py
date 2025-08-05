@@ -72,15 +72,7 @@ def run_cli_mode(cli_config: CLIConfig) -> int:
         logger.debug(f"Filter settings: {filter_settings}")
         logger.debug(f"Generation options: {generation_options}")
 
-        if not cli_config.recursive:
-            logger.warning(
-                "--no-recursive option is not fully supported in current implementation. Processing will still be recursive."
-            )
-
-        if cli_config.include_hidden:
-            logger.warning(
-                "--include-hidden option is not fully supported in current implementation. Hidden files will still be excluded."
-            )
+        # Flags are now supported in the file walker via WorkerConfig
 
         QtCore.QTimer.singleShot(0, worker.run)
 

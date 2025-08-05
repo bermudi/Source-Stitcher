@@ -82,9 +82,14 @@ class ProjectFileWalker:
                 elif is_regular_dir:
                     if not self._is_directory_ignored(path):
                         current_dir_ignore_spec = load_ignore_patterns(path)
-                        dir_files = self._discover_directory_recursive(
-                            path, current_dir_ignore_spec, seen
-                        )
+                        if self.config.generation_options.recursive:
+                            dir_files = self._discover_directory_recursive(
+                                path, current_dir_ignore_spec, seen
+                            )
+                        else:
+                            dir_files = self._discover_directory_shallow(
+                                path, current_dir_ignore_spec, seen
+                            )
                         discovered_files.extend(dir_files)
                         logger.debug(
                             f"Added {len(dir_files)} files from directory: {path}"
@@ -191,6 +196,59 @@ class ProjectFileWalker:
 
         return discovered_files
 
+    def _discover_directory_shallow(
+        self,
+        dir_path: Path,
+        current_dir_ignore_spec: Optional[pathspec.PathSpec],
+        seen: Set[Tuple[int, int]],
+    ) -> List[Path]:
+        """Discover only the top-level files in a directory (non-recursive)."""
+        discovered_files: List[Path] = []
+
+        try:
+            root_relative_to_base = dir_path.relative_to(
+                self.config.generation_options.base_directory
+            )
+        except ValueError:
+            logger.warning(
+                f"Could not make path relative during shallow discovery: {dir_path}. Skipping."
+            )
+            return discovered_files
+
+        # Process only files in the directory; we do not descend into subdirectories
+        try:
+            with os.scandir(dir_path) as it:
+                entries = sorted(it, key=lambda e: e.name.lower())
+                for entry in entries:
+                    if self._is_cancelled:
+                        break
+                    try:
+                        if entry.is_file(follow_symlinks=False):
+                            full_path = Path(entry.path)
+                            st = entry.stat(follow_symlinks=False)
+                            if self._should_include_file(
+                                full_path,
+                                st,
+                                seen,
+                                current_dir_ignore_spec,
+                                Path("."),
+                            ):
+                                discovered_files.append(full_path)
+                                seen.add((st.st_dev, st.st_ino))
+                                logger.debug(f"Discovered file: {full_path}")
+                        # skip directories entirely in shallow mode
+                    except (OSError, ValueError) as e:
+                        logger.warning(
+                            f"Could not process entry during shallow discovery: {entry.path}, error: {e}"
+                        )
+                        continue
+        except (OSError, ValueError) as e:
+            logger.warning(
+                f"Could not list directory during shallow discovery: {dir_path}, error: {e}"
+            )
+
+        return discovered_files
+
     def _filter_directories(
         self,
         dirs: List[str],
@@ -231,6 +289,10 @@ class ProjectFileWalker:
         Returns:
             True if directory should be ignored
         """
+        # Respect include_hidden for top-level directories
+        if not self.config.filter_settings.include_hidden and dir_path.name.startswith("."):
+            return True
+
         try:
             rel_path_str = (
                 str(dir_path.relative_to(self.config.generation_options.base_directory))
@@ -274,8 +336,11 @@ class ProjectFileWalker:
         Returns:
             True if directory should be ignored
         """
-        # Skip hidden directories
-        if dir_name.startswith("."):
+        # Skip hidden directories unless include_hidden is True
+        if (
+            not self.config.filter_settings.include_hidden
+            and dir_name.startswith(".")
+        ):
             return True
 
         full_dir_path_str = str(root_relative_to_base / dir_name) + "/"
@@ -329,14 +394,19 @@ class ProjectFileWalker:
         if not stat.S_ISREG(st.st_mode) or st.st_size == 0:
             return False
 
-        # Skip hidden files
-        if file_path.name.startswith("."):
-            return False
-
-        # Check for duplicate files (same inode)
-        dev_ino = (st.st_dev, st.st_ino)
-        if dev_ino in seen:
-            return False
+        # Skip hidden files (and paths containing hidden segments) unless include_hidden is True
+        if not self.config.filter_settings.include_hidden:
+            try:
+                relative_path_to_base = file_path.relative_to(
+                    self.config.generation_options.base_directory
+                )
+                for part in relative_path_to_base.parts:
+                    if part.startswith("."):
+                        return False
+            except ValueError:
+                # Fall back to simple name check if not relative
+                if file_path.name.startswith("."):
+                    return False
 
         try:
             relative_path_to_base = file_path.relative_to(
