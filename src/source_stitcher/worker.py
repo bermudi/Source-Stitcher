@@ -4,7 +4,7 @@ import logging
 import tempfile
 import time
 from pathlib import Path
-from typing import List
+from typing import List, TextIO, cast
 
 from PyQt6 import QtCore
 
@@ -109,7 +109,7 @@ class GeneratorWorker(QtCore.QObject):
                 fh.flush()
 
                 # Stream file content directly
-                content_streamer = ContentStreamer(self.file_reader, fh)
+                content_streamer = ContentStreamer(self.file_reader, cast(TextIO, fh))
                 files_processed_count, processed_files = content_streamer.stream_files(
                     file_list,
                     self.config.generation_options.base_directory,

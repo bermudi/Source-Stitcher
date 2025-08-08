@@ -5,7 +5,7 @@ import os
 import stat
 import time
 from pathlib import Path
-from typing import List, Set, Tuple, Optional
+from typing import List, Set, Tuple, Optional, Callable
 import pathspec
 
 from ..config import WorkerConfig
@@ -21,7 +21,7 @@ class ProjectFileWalker:
     """
 
     def __init__(
-        self, config: WorkerConfig, progress_callback: Optional[callable] = None
+        self, config: WorkerConfig, progress_callback: Optional[Callable[[str], None]] = None
     ):
         """
         Initialize the file walker with configuration.

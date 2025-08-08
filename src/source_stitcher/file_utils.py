@@ -8,6 +8,9 @@ import pathspec
 
 logger = logging.getLogger(__name__)
 
+# Module-level guard to ensure we only log configuration once (mypy-friendly)
+_logged_matches_config: bool = False
+
 
 def load_ignore_patterns(directory: Path) -> pathspec.PathSpec | None:
     """Loads ignore patterns from various ignore files in the specified directory."""
@@ -214,12 +217,13 @@ def matches_file_type(
     file_name = filepath.name.lower()
 
     # Only log the full configuration once
-    if not hasattr(matches_file_type, "_logged_config"):
+    global _logged_matches_config
+    if not _logged_matches_config:
         logger.debug("File type matching configuration:")
         logger.debug(f"  - Selected extensions: {selected_exts}")
         logger.debug(f"  - Selected names: {selected_names}")
         logger.debug(f"  - Handle other files: {handle_other}")
-        matches_file_type._logged_config = True
+        _logged_matches_config = True
 
     matches = False
     reason = ""

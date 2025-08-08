@@ -4,6 +4,7 @@ import logging
 import shutil
 import sys
 from pathlib import Path
+from typing import Any, List, Optional, TypedDict, cast
 
 from PyQt6 import QtCore
 
@@ -44,14 +45,20 @@ def run_cli_mode(cli_config: CLIConfig) -> int:
             show_progress=cli_config.progress, quiet=cli_config.quiet
         )
 
-        completion_state = {
+        class CompletionState(TypedDict):
+            finished: bool
+            temp_file: Optional[str]
+            processed_files: List[Path]
+            error: Optional[str]
+
+        completion_state: CompletionState = {
             "finished": False,
             "temp_file": None,
             "processed_files": [],
             "error": None,
         }
 
-        def on_finished(temp_file: str, processed_files: list, error_message: str):
+        def on_finished(temp_file: str, processed_files: List[Path], error_message: str):
             """Handle worker completion with new signature (temp_path, processed_files, error)."""
             logger.debug(
                 f"Worker finished - temp_file: {temp_file}, processed_files: {len(processed_files) if processed_files else 0}, error: {error_message}"
@@ -90,7 +97,7 @@ def run_cli_mode(cli_config: CLIConfig) -> int:
             if cli_config.output_file.exists() and not cli_config.overwrite:
                 logger.error(f"Output file already exists: {cli_config.output_file}")
                 logger.error("Use --overwrite flag to overwrite existing files")
-                temp_path = Path(completion_state["temp_file"])
+                temp_path = Path(cast(str, completion_state["temp_file"]))
                 if temp_path.exists():
                     temp_path.unlink()
                 return 5
@@ -100,7 +107,7 @@ def run_cli_mode(cli_config: CLIConfig) -> int:
             logger.debug(
                 f"Moving temporary file {completion_state['temp_file']} to final location: {cli_config.output_file}"
             )
-            shutil.move(completion_state["temp_file"], cli_config.output_file)
+            shutil.move(cast(str, completion_state["temp_file"]), cli_config.output_file)
 
             logger.info(
                 f"CLI processing complete. Output written to: {cli_config.output_file}"

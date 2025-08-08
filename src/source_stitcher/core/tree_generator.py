@@ -100,7 +100,7 @@ class ProjectTreeGenerator:
         Returns:
             List of formatted tree lines
         """
-        lines = []
+        lines: List[str] = []
 
         if not structure:
             return lines

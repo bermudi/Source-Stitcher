@@ -15,10 +15,10 @@ class CLIConfig:
 
     directory: Path
     output_file: Path
-    include_types: List[str] = None
-    exclude_types: List[str] = None
-    include_extensions: List[str] = None
-    exclude_extensions: List[str] = None
+    include_types: Optional[List[str]] = None
+    exclude_types: Optional[List[str]] = None
+    include_extensions: Optional[List[str]] = None
+    exclude_extensions: Optional[List[str]] = None
     respect_gitignore: bool = True
     ignore_file: Optional[Path] = None
     include_hidden: bool = False

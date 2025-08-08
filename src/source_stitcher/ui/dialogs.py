@@ -5,10 +5,10 @@ import os
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from PyQt6 import QtCore, QtWidgets
-from atomicwrites import atomic_write
+from atomicwrites import atomic_write  # type: ignore[import-untyped]
 
 from ..core.tree_generator import ProjectTreeGenerator
 
@@ -27,7 +27,7 @@ class SaveFileDialog:
         temp_file_path: str,
         working_dir: Path,
         selected_language_names: list,
-        processed_files: list = None,
+        processed_files: Optional[List[Path]] = None,
     ) -> None:
         """Handles the save file dialog and writing the output."""
         desktop_path = self._find_desktop_path()
@@ -126,7 +126,7 @@ class SaveFileDialog:
         temp_file_path: str,
         working_dir: Path,
         selected_language_names: list,
-        processed_files: list = None,
+        processed_files: Optional[List[Path]] = None,
     ) -> None:
         """Write the final output file."""
         logger.debug(f"Writing output to file: {output_filename}")

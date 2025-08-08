@@ -3,14 +3,18 @@
 import logging
 from pathlib import Path
 from typing import Optional
+from types import ModuleType
 
-try:
-    import tomllib  # Python 3.11+
-except ImportError:
+# Use a mypy-friendly import pattern for tomllib/tomli
+try:  # pragma: no cover - import resolution
+    import tomllib as _tomllib  # Python 3.11+
+except Exception:  # pragma: no cover
     try:
-        import tomli as tomllib  # Fallback for older Python versions
-    except ImportError:
-        tomllib = None
+        import tomli as _tomllib  # type: ignore[import-not-found]
+    except Exception:  # pragma: no cover
+        _tomllib = None  # type: ignore[assignment]
+
+tomllib: Optional[ModuleType] = _tomllib
 
 
 def get_version() -> str:

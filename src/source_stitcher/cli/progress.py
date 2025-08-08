@@ -4,6 +4,7 @@ import logging
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +17,7 @@ class CLIProgressReporter:
         self.quiet = quiet
         self.total_files = 0
         self.processed_files = 0
-        self.start_time = None
+        self.start_time: Optional[float] = None
         logger.debug(
             f"CLIProgressReporter initialized with show_progress={show_progress}, quiet={quiet}"
         )

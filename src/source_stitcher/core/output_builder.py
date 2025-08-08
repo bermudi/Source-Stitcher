@@ -97,7 +97,7 @@ class HeaderBuilder:
             logger.warning(f"Error computing directory size for {root}: {e}")
         return total
     
-    def _format_size(self, num_bytes: int) -> str:
+    def _format_size(self, num_bytes: float) -> str:
         """Format bytes as human-readable string.
         
         Args:
@@ -106,15 +106,16 @@ class HeaderBuilder:
         Returns:
             Human-readable size string
         """
+        size = float(num_bytes)
         for unit in ["bytes", "KB", "MB", "GB", "TB"]:
-            if num_bytes < 1024.0 or unit == "TB":
+            if size < 1024.0 or unit == "TB":
                 return (
-                    f"{num_bytes:.2f} {unit}"
+                    f"{size:.2f} {unit}"
                     if unit != "bytes"
-                    else f"{int(num_bytes)} {unit}"
+                    else f"{int(size)} {unit}"
                 )
-            num_bytes /= 1024.0
-        return f"{num_bytes:.2f} TB"
+            size /= 1024.0
+        return f"{size:.2f} TB"
 
 
 class ContentStreamer:
