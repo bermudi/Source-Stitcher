@@ -5,10 +5,11 @@ import os
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from PyQt6 import QtCore, QtWidgets
 from atomicwrites import atomic_write
+import tiktoken
 
 from ..core.tree_generator import ProjectTreeGenerator
 
@@ -21,6 +22,11 @@ class SaveFileDialog:
     def __init__(self, parent_window):
         self.parent = parent_window
         logger.debug("SaveFileDialog initialized.")
+        try:
+            self.token_encoder = tiktoken.get_encoding("o200k_base")
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            logger.warning("Failed to initialize token encoder: %s", exc)
+            self.token_encoder = None
 
     def save_generated_file(
         self,
@@ -142,12 +148,21 @@ class SaveFileDialog:
             return
 
         # The temp file now contains the complete output with header, tree, and content
-        # Just copy it directly to the final location
+        # Just copy it directly to the final location while counting tokens for reporting
         logger.debug(f"Copying complete temp file to output: {output_filename}")
+        token_count: Optional[int] = None
         try:
-            with atomic_write(output_path, mode="w", encoding="utf-8", overwrite=True) as f:
+            with atomic_write(
+                output_path, mode="w", encoding="utf-8", overwrite=True
+            ) as final_file:
                 with open(temp_file_path, "r", encoding="utf-8") as temp_file:
-                    shutil.copyfileobj(temp_file, f)
+                    content = temp_file.read()
+                    final_file.write(content)
+                    if self.token_encoder:
+                        try:
+                            token_count = len(self.token_encoder.encode(content))
+                        except Exception as exc:  # pragma: no cover - rarely triggered
+                            logger.warning("Failed to count tokens: %s", exc)
         except Exception as e:
             error_msg = f"Error writing output file: {e}"
             logger.error(error_msg, exc_info=True)
@@ -162,8 +177,20 @@ class SaveFileDialog:
                 )
 
         logger.info(f"Successfully generated file: {output_filename}")
+        success_message = [
+            "File generated successfully!",
+            "",
+            "Saved to:",
+            str(output_filename),
+            "",
+            f"File size: {output_path.stat().st_size:,} bytes",
+        ]
+        if token_count is not None:
+            success_message.append(
+                f"Token count (o200k_base): {token_count:,}"
+            )
         QtWidgets.QMessageBox.information(
             self.parent,
             "Success",
-            f"File generated successfully!\n\nSaved to:\n{output_filename}\n\nFile size: {output_path.stat().st_size:,} bytes",
+            "\n".join(success_message),
         )
