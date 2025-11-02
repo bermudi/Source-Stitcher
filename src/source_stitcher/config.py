@@ -36,6 +36,10 @@ class FilterSettings:
     ignore_spec: Optional[pathspec.PathSpec] = None
     global_ignore_spec: Optional[pathspec.PathSpec] = None
     search_text: str = ""
+    # Ignore file preferences
+    use_gitignore: bool = True  # Default ON for gitignore
+    use_npmignore: bool = False  # Default OFF for npmignore
+    use_dockerignore: bool = False  # Default OFF for dockerignore
 
 
 @dataclass

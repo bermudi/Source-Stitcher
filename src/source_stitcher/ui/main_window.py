@@ -8,7 +8,12 @@ from typing import List, Optional, Set, Tuple
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
-from source_stitcher.config import FilterSettings, GenerationOptions, WorkerConfig, AppSettings
+from source_stitcher.config import (
+    FilterSettings,
+    GenerationOptions,
+    WorkerConfig,
+    AppSettings,
+)
 from source_stitcher.file_utils import (
     build_filter_sets,
     load_ignore_patterns,
@@ -61,6 +66,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.save_dialog = SaveFileDialog(self)
 
         self.init_ui()
+        self.load_settings()
         self.populate_file_list()
         logger.debug("Main window initialized.")
 
@@ -134,6 +140,30 @@ class FileConcatenator(QtWidgets.QMainWindow):
 
         self.language_list_widget.itemChanged.connect(self.refresh_files)
         language_layout.addWidget(self.language_list_widget)
+
+        # Add ignore file checkboxes
+        ignore_files_layout = QtWidgets.QHBoxLayout()
+        ignore_files_label = QtWidgets.QLabel("Ignore Files:")
+        ignore_files_layout.addWidget(ignore_files_label)
+
+        self.use_gitignore_checkbox = QtWidgets.QCheckBox(".gitignore")
+        self.use_gitignore_checkbox.setChecked(True)  # Default ON
+        self.use_gitignore_checkbox.stateChanged.connect(self.refresh_files)
+        ignore_files_layout.addWidget(self.use_gitignore_checkbox)
+
+        self.use_npmignore_checkbox = QtWidgets.QCheckBox(".npmignore")
+        self.use_npmignore_checkbox.setChecked(False)  # Default OFF
+        self.use_npmignore_checkbox.stateChanged.connect(self.refresh_files)
+        ignore_files_layout.addWidget(self.use_npmignore_checkbox)
+
+        self.use_dockerignore_checkbox = QtWidgets.QCheckBox(".dockerignore")
+        self.use_dockerignore_checkbox.setChecked(False)  # Default OFF
+        self.use_dockerignore_checkbox.stateChanged.connect(self.refresh_files)
+        ignore_files_layout.addWidget(self.use_dockerignore_checkbox)
+
+        ignore_files_layout.addStretch()
+        language_layout.addLayout(ignore_files_layout)
+
         main_layout.addWidget(language_group)
 
         self.file_tree_widget = QtWidgets.QTreeWidget()
@@ -324,6 +354,32 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.btn_up.setEnabled(enabled and not is_root)
         self.btn_cancel.setEnabled(not enabled)
 
+    def load_settings(self) -> None:
+        """Load settings from QSettings."""
+        settings = QtCore.QSettings(
+            self.app_settings.organization_name, "SOTAConcatenator"
+        )
+        self.use_gitignore_checkbox.setChecked(
+            settings.value("use_gitignore", True, type=bool)
+        )
+        self.use_npmignore_checkbox.setChecked(
+            settings.value("use_npmignore", False, type=bool)
+        )
+        self.use_dockerignore_checkbox.setChecked(
+            settings.value("use_dockerignore", False, type=bool)
+        )
+
+    def save_settings(self) -> None:
+        """Save settings to QSettings."""
+        settings = QtCore.QSettings(
+            self.app_settings.organization_name, "SOTAConcatenator"
+        )
+        settings.setValue("use_gitignore", self.use_gitignore_checkbox.isChecked())
+        settings.setValue("use_npmignore", self.use_npmignore_checkbox.isChecked())
+        settings.setValue(
+            "use_dockerignore", self.use_dockerignore_checkbox.isChecked()
+        )
+
     def populate_file_list(self) -> None:
         """Populate the tree widget with files and directories."""
         logger.debug("Populating file list.")
@@ -474,7 +530,12 @@ class FileConcatenator(QtWidgets.QMainWindow):
         logger.debug("Refreshing file list.")
         if self.is_generating:
             return
-        self.ignore_spec = load_ignore_patterns(self.working_dir)
+        self.ignore_spec = load_ignore_patterns(
+            self.working_dir,
+            use_gitignore=self.use_gitignore_checkbox.isChecked(),
+            use_npmignore=self.use_npmignore_checkbox.isChecked(),
+            use_dockerignore=self.use_dockerignore_checkbox.isChecked(),
+        )
         self.populate_file_list()
 
     def handle_item_double_click(
@@ -714,6 +775,9 @@ class FileConcatenator(QtWidgets.QMainWindow):
             ignore_spec=self.ignore_spec,
             global_ignore_spec=self.global_ignore_spec,
             search_text=self.search_entry.text(),
+            use_gitignore=self.use_gitignore_checkbox.isChecked(),
+            use_npmignore=self.use_npmignore_checkbox.isChecked(),
+            use_dockerignore=self.use_dockerignore_checkbox.isChecked(),
         )
         generation_options = GenerationOptions(
             selected_paths=selected_paths, base_directory=self.working_dir
@@ -872,4 +936,6 @@ class FileConcatenator(QtWidgets.QMainWindow):
                 logger.debug("User cancelled exit.")
                 event.ignore()
         else:
+            # Save settings when closing
+            self.save_settings()
             event.accept()

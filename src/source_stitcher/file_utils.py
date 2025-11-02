@@ -9,11 +9,25 @@ import pathspec
 logger = logging.getLogger(__name__)
 
 
-def load_ignore_patterns(directory: Path) -> pathspec.PathSpec | None:
-    """Loads ignore patterns from various ignore files in the specified directory."""
+def load_ignore_patterns(
+    directory: Path,
+    use_gitignore: bool = True,
+    use_npmignore: bool = False,
+    use_dockerignore: bool = False,
+) -> pathspec.PathSpec | None:
+    """Loads ignore patterns from specified ignore files in the directory."""
     logger.debug(f"Loading ignore patterns from: {directory}")
     patterns = []
-    ignore_files = [".gitignore", ".npmignore", ".dockerignore"]
+    ignore_files = []
+
+    # Only add files that are enabled
+    if use_gitignore:
+        ignore_files.append(".gitignore")
+    if use_npmignore:
+        ignore_files.append(".npmignore")
+    if use_dockerignore:
+        ignore_files.append(".dockerignore")
+
     for ig_file in ignore_files:
         ignore_path = directory / ig_file
         if ignore_path.is_file():

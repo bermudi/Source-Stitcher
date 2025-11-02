@@ -81,7 +81,12 @@ class ProjectFileWalker:
 
                 elif is_regular_dir:
                     if not self._is_directory_ignored(path):
-                        current_dir_ignore_spec = load_ignore_patterns(path)
+                        current_dir_ignore_spec = load_ignore_patterns(
+                            path,
+                            use_gitignore=self.config.filter_settings.use_gitignore,
+                            use_npmignore=self.config.filter_settings.use_npmignore,
+                            use_dockerignore=self.config.filter_settings.use_dockerignore,
+                        )
                         dir_files = self._discover_directory_recursive(
                             path, current_dir_ignore_spec, seen
                         )
