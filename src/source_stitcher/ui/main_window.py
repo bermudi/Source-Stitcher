@@ -19,6 +19,7 @@ from source_stitcher.config import (
 )
 from source_stitcher.file_utils import (
     build_filter_sets,
+    is_binary_file,
     load_ignore_patterns,
     load_global_gitignore,
     matches_file_type,
@@ -720,16 +721,43 @@ class FileConcatenator(QtWidgets.QMainWindow):
         selected_paths = self._collect_selected_paths_recursive()
         total_tokens = 0
         
-        # Expand directories to get actual files
-        files_to_count: List[Path] = []
+        # Get current filter settings to match generation behavior
+        selected_exts, selected_names, handle_other = self.get_selected_filter_sets()
+        include_hidden = self.include_hidden_files_checkbox.isChecked()
+        
+        # Expand directories to get actual files (use set to avoid duplicates)
+        files_to_count: set[Path] = set()
         for path in selected_paths:
             if path.is_dir():
-                # Walk directory to find all files
-                for root, _, filenames in os.walk(path):
+                # Walk directory to find all files, applying filters
+                for root, dirs, filenames in os.walk(path):
+                    root_path = Path(root)
+                    
+                    # Filter directories in-place (same as ProjectFileWalker)
+                    if not include_hidden:
+                        dirs[:] = [d for d in dirs if not d.startswith(".")]
+                    
+                    # Apply ignore patterns to directories
+                    try:
+                        rel_root = root_path.relative_to(self.working_dir)
+                        if self.ignore_spec:
+                            dirs[:] = [d for d in dirs 
+                                       if not self.ignore_spec.match_file(str(rel_root / d) + "/")]
+                        if self.global_ignore_spec:
+                            dirs[:] = [d for d in dirs 
+                                       if not self.global_ignore_spec.match_file(str(rel_root / d) + "/")]
+                    except ValueError:
+                        pass
+                    
                     for fname in filenames:
-                        files_to_count.append(Path(root) / fname)
+                        file_path = root_path / fname
+                        if self._should_count_file(file_path, selected_exts, selected_names, 
+                                                   handle_other, include_hidden):
+                            files_to_count.add(file_path)
             elif path.is_file():
-                files_to_count.append(path)
+                if self._should_count_file(path, selected_exts, selected_names, 
+                                           handle_other, include_hidden):
+                    files_to_count.add(path)
         
         for path in files_to_count:
             if path in self.token_cache:
@@ -765,6 +793,59 @@ class FileConcatenator(QtWidgets.QMainWindow):
             over = total_tokens - budget
             self.token_status_label.setText(f"⚠️ Over by {self._format_token_count(over)}")
             self.token_status_label.setStyleSheet("color: red; font-weight: bold;")
+
+    def _should_count_file(
+        self,
+        file_path: Path,
+        selected_exts: Set[str],
+        selected_names: Set[str],
+        handle_other: bool,
+        include_hidden: bool,
+    ) -> bool:
+        """Check if a file should be counted for token estimation.
+        
+        Applies the same filtering logic as ProjectFileWalker to ensure
+        the live token count matches the final generated output.
+        """
+        # Skip hidden files unless explicitly included
+        if file_path.name.startswith(".") and not include_hidden:
+            return False
+        
+        # Skip empty files
+        try:
+            if file_path.stat().st_size == 0:
+                return False
+        except OSError:
+            return False
+        
+        # Apply ignore patterns
+        try:
+            rel_path = file_path.relative_to(self.working_dir)
+            rel_path_str = str(rel_path)
+            
+            if self.ignore_spec and self.ignore_spec.match_file(rel_path_str):
+                return False
+            if self.global_ignore_spec and self.global_ignore_spec.match_file(rel_path_str):
+                return False
+        except ValueError:
+            pass
+        
+        # Check file type matching (extensions/filenames)
+        if not matches_file_type(
+            file_path,
+            selected_exts,
+            selected_names,
+            self.ALL_EXTENSIONS,
+            self.ALL_FILENAMES,
+            handle_other,
+        ):
+            return False
+        
+        # Skip binary files
+        if is_binary_file(file_path):
+            return False
+        
+        return True
 
     def _format_token_count(self, count: int) -> str:
         """Format token count in human-readable form (e.g., 128K instead of 131,072)."""
