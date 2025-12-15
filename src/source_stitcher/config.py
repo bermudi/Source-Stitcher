@@ -93,3 +93,19 @@ class WorkerConfig:
     estimated_total_files: int = 0
     progress_update_interval: int = 10
     language_config_path: Optional[Path] = None
+
+
+# Token budget options for LLM context limits (using round numbers, not powers of 2)
+TOKEN_BUDGETS = {
+    "4K": 4_000,
+    "8K": 8_000,
+    "16K": 16_000,
+    "32K": 32_000,
+    "128K": 128_000,
+    "200K": 200_000,
+    "1M": 1_000_000,
+    "Unlimited": None,
+}
+
+# Default token budget
+DEFAULT_TOKEN_BUDGET = "128K"

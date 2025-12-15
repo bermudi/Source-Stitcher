@@ -4,15 +4,18 @@ import logging
 import os
 import stat
 from pathlib import Path
-from typing import List, Optional, Set, Tuple
+from typing import List, Optional, Set, Tuple, Dict
 
 from PyQt6 import QtCore, QtGui, QtWidgets
+import tiktoken
 
 from source_stitcher.config import (
     FilterSettings,
     GenerationOptions,
     WorkerConfig,
     AppSettings,
+    TOKEN_BUDGETS,
+    DEFAULT_TOKEN_BUDGET,
 )
 from source_stitcher.file_utils import (
     build_filter_sets,
@@ -64,6 +67,18 @@ class FileConcatenator(QtWidgets.QMainWindow):
             self.language_extensions
         )
         self.save_dialog = SaveFileDialog(self)
+
+        # Initialize token estimation
+        self.token_cache: Dict[Path, int] = {}
+        self._debounce_timer = QtCore.QTimer()
+        self._debounce_timer.setSingleShot(True)
+        self._debounce_timer.timeout.connect(self._update_token_estimate)
+        
+        try:
+            self.token_encoder = tiktoken.get_encoding("o200k_base")
+        except Exception:
+            logger.warning("Failed to initialize token encoder")
+            self.token_encoder = None
 
         self.init_ui()
         self.load_settings()
@@ -182,6 +197,29 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.file_tree_widget.itemChanged.connect(self.handle_check_change)
         self.file_tree_widget.setAlternatingRowColors(True)
         main_layout.addWidget(self.file_tree_widget)
+
+        # Add token status panel
+        token_panel_layout = QtWidgets.QHBoxLayout()
+        
+        # Token count label
+        self.token_count_label = QtWidgets.QLabel("📊 Tokens: ~0")
+        self.token_count_label.setStyleSheet("font-weight: bold;")
+        token_panel_layout.addWidget(self.token_count_label)
+        
+        # Budget dropdown
+        token_panel_layout.addWidget(QtWidgets.QLabel("Budget:"))
+        self.token_budget_combo = QtWidgets.QComboBox()
+        self.token_budget_combo.addItems(list(TOKEN_BUDGETS.keys()))
+        self.token_budget_combo.setCurrentText(DEFAULT_TOKEN_BUDGET)
+        self.token_budget_combo.currentTextChanged.connect(self.on_token_budget_changed)
+        token_panel_layout.addWidget(self.token_budget_combo)
+        
+        # Status indicator
+        self.token_status_label = QtWidgets.QLabel("✅ Within limit")
+        token_panel_layout.addWidget(self.token_status_label)
+        
+        token_panel_layout.addStretch()
+        main_layout.addLayout(token_panel_layout)
 
         bottom_layout = QtWidgets.QHBoxLayout()
         self.btn_select_all = QtWidgets.QPushButton("Select All")
@@ -376,6 +414,10 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.include_hidden_files_checkbox.setChecked(
             settings.value("include_hidden_files", False, type=bool)
         )
+        # Load token budget setting
+        saved_budget = settings.value("token_budget", DEFAULT_TOKEN_BUDGET, type=str)
+        if saved_budget in TOKEN_BUDGETS:
+            self.token_budget_combo.setCurrentText(saved_budget)
 
     def save_settings(self) -> None:
         """Save settings to QSettings."""
@@ -536,19 +578,6 @@ class FileConcatenator(QtWidgets.QMainWindow):
             if parent_item:
                 parent_item.setDisabled(True)
 
-    def refresh_files(self) -> None:
-        """Refresh list (reload ignores)."""
-        logger.debug("Refreshing file list.")
-        if self.is_generating:
-            return
-        self.ignore_spec = load_ignore_patterns(
-            self.working_dir,
-            use_gitignore=self.use_gitignore_checkbox.isChecked(),
-            use_npmignore=self.use_npmignore_checkbox.isChecked(),
-            use_dockerignore=self.use_dockerignore_checkbox.isChecked(),
-        )
-        self.populate_file_list()
-
     def handle_item_double_click(
         self, item: QtWidgets.QTreeWidgetItem, column: int
     ) -> None:
@@ -674,6 +703,101 @@ class FileConcatenator(QtWidgets.QMainWindow):
         while parent:
             self._update_parent_check_state(parent)
             parent = parent.parent()
+        
+        # Trigger token estimation update with debounce
+        self._schedule_token_update()
+
+    def _schedule_token_update(self) -> None:
+        """Schedule a token update with debouncing."""
+        if self.token_encoder:
+            self._debounce_timer.start(150)  # 150ms debounce
+
+    def _update_token_estimate(self) -> None:
+        """Update the token estimate for selected files."""
+        if not self.token_encoder:
+            return
+            
+        selected_paths = self._collect_selected_paths_recursive()
+        total_tokens = 0
+        
+        # Expand directories to get actual files
+        files_to_count: List[Path] = []
+        for path in selected_paths:
+            if path.is_dir():
+                # Walk directory to find all files
+                for root, _, filenames in os.walk(path):
+                    for fname in filenames:
+                        files_to_count.append(Path(root) / fname)
+            elif path.is_file():
+                files_to_count.append(path)
+        
+        for path in files_to_count:
+            if path in self.token_cache:
+                total_tokens += self.token_cache[path]
+            else:
+                # Read file and count tokens
+                try:
+                    content = path.read_text(encoding="utf-8", errors="ignore")
+                    # Add overhead for markdown wrapper
+                    wrapper_overhead = len(f"\n--- File: {path.relative_to(self.working_dir)} ---\n```\n\n```\n")
+                    token_count = len(self.token_encoder.encode(content)) + wrapper_overhead
+                    self.token_cache[path] = token_count
+                    total_tokens += token_count
+                except Exception as e:
+                    logger.debug(f"Could not read {path} for token counting: {e}")
+                    continue
+        
+        # Update UI
+        self.token_count_label.setText(f"📊 Tokens: ~{total_tokens:,}")
+        
+        # Check against budget
+        budget_key = self.token_budget_combo.currentText()
+        budget = TOKEN_BUDGETS.get(budget_key)
+        
+        if budget is None:
+            self.token_status_label.setText("✅ No limit")
+            self.token_status_label.setStyleSheet("color: green;")
+        elif total_tokens <= budget:
+            remaining = budget - total_tokens
+            self.token_status_label.setText(f"✅ Within limit ({self._format_token_count(remaining)} remaining)")
+            self.token_status_label.setStyleSheet("color: green;")
+        else:
+            over = total_tokens - budget
+            self.token_status_label.setText(f"⚠️ Over by {self._format_token_count(over)}")
+            self.token_status_label.setStyleSheet("color: red; font-weight: bold;")
+
+    def _format_token_count(self, count: int) -> str:
+        """Format token count in human-readable form (e.g., 128K instead of 131,072)."""
+        if count >= 1_000_000:
+            return f"{count / 1_000_000:.1f}M"
+        elif count >= 1_000:
+            return f"{count / 1_000:.1f}K"
+        return str(count)
+
+    def on_token_budget_changed(self, budget_key: str) -> None:
+        """Handle token budget change."""
+        self._update_token_estimate()
+        # Save to settings
+        settings = QtCore.QSettings(
+            self.app_settings.organization_name, "SOTAConcatenator"
+        )
+        settings.setValue("token_budget", budget_key)
+
+    def refresh_files(self) -> None:
+        """Refresh list (reload ignores)."""
+        logger.debug("Refreshing file list.")
+        if self.is_generating:
+            return
+        self.ignore_spec = load_ignore_patterns(
+            self.working_dir,
+            use_gitignore=self.use_gitignore_checkbox.isChecked(),
+            use_npmignore=self.use_npmignore_checkbox.isChecked(),
+            use_dockerignore=self.use_dockerignore_checkbox.isChecked(),
+        )
+        # Clear token cache when directory changes or filters change
+        self.token_cache.clear()
+        self.populate_file_list()
+        self._schedule_token_update()
 
     def _set_children_check_state(
         self, item: QtWidgets.QTreeWidgetItem, state: QtCore.Qt.CheckState
