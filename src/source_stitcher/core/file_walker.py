@@ -279,8 +279,8 @@ class ProjectFileWalker:
         Returns:
             True if directory should be ignored
         """
-        # Skip hidden directories
-        if dir_name.startswith("."):
+        # Skip hidden directories unless explicitly requested
+        if dir_name.startswith(".") and not self.config.filter_settings.include_hidden_files:
             return True
 
         full_dir_path_str = str(root_relative_to_base / dir_name) + "/"
@@ -334,8 +334,8 @@ class ProjectFileWalker:
         if not stat.S_ISREG(st.st_mode) or st.st_size == 0:
             return False
 
-        # Skip hidden files
-        if file_path.name.startswith("."):
+        # Skip hidden files unless explicitly requested
+        if file_path.name.startswith(".") and not self.config.filter_settings.include_hidden_files:
             return False
 
         # Check for duplicate files (same inode)

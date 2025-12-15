@@ -40,6 +40,7 @@ class FilterSettings:
     use_gitignore: bool = True  # Default ON for gitignore
     use_npmignore: bool = False  # Default OFF for npmignore
     use_dockerignore: bool = False  # Default OFF for dockerignore
+    include_hidden_files: bool = False  # Default OFF for hidden files
 
 
 @dataclass

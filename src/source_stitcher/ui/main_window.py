@@ -161,6 +161,11 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.use_dockerignore_checkbox.stateChanged.connect(self.refresh_files)
         ignore_files_layout.addWidget(self.use_dockerignore_checkbox)
 
+        self.include_hidden_files_checkbox = QtWidgets.QCheckBox("Hidden Files")
+        self.include_hidden_files_checkbox.setChecked(False)  # Default OFF
+        self.include_hidden_files_checkbox.stateChanged.connect(self.refresh_files)
+        ignore_files_layout.addWidget(self.include_hidden_files_checkbox)
+
         ignore_files_layout.addStretch()
         language_layout.addLayout(ignore_files_layout)
 
@@ -368,6 +373,9 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.use_dockerignore_checkbox.setChecked(
             settings.value("use_dockerignore", False, type=bool)
         )
+        self.include_hidden_files_checkbox.setChecked(
+            settings.value("include_hidden_files", False, type=bool)
+        )
 
     def save_settings(self) -> None:
         """Save settings to QSettings."""
@@ -378,6 +386,9 @@ class FileConcatenator(QtWidgets.QMainWindow):
         settings.setValue("use_npmignore", self.use_npmignore_checkbox.isChecked())
         settings.setValue(
             "use_dockerignore", self.use_dockerignore_checkbox.isChecked()
+        )
+        settings.setValue(
+            "include_hidden_files", self.include_hidden_files_checkbox.isChecked()
         )
 
     def populate_file_list(self) -> None:
@@ -486,7 +497,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
                     relative_path_str_for_ignore
                 ):
                     continue
-                if entry.name.startswith("."):
+                if entry.name.startswith(".") and not self.include_hidden_files_checkbox.isChecked():
                     continue
                 if search_text and search_text not in entry.name.lower():
                     continue
@@ -778,6 +789,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
             use_gitignore=self.use_gitignore_checkbox.isChecked(),
             use_npmignore=self.use_npmignore_checkbox.isChecked(),
             use_dockerignore=self.use_dockerignore_checkbox.isChecked(),
+            include_hidden_files=self.include_hidden_files_checkbox.isChecked(),
         )
         generation_options = GenerationOptions(
             selected_paths=selected_paths, base_directory=self.working_dir
