@@ -222,7 +222,7 @@ class ProjectFileWalker:
                 root_relative_to_current,
                 current_dir_ignore_spec,
             ):
-                logger.debug(f"Directory {d} ignored by filters")
+                # Silently skip - no need to log every ignored dir
                 continue
             dirs.append(d)
 
@@ -279,6 +279,10 @@ class ProjectFileWalker:
         Returns:
             True if directory should be ignored
         """
+        # Hard skip: always skip node_modules (performance optimization)
+        if dir_name == "node_modules":
+            return True
+
         # Skip hidden directories unless explicitly requested
         if dir_name.startswith(".") and not self.config.filter_settings.include_hidden_files:
             return True

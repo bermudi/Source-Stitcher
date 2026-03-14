@@ -108,62 +108,28 @@ def is_binary_file(filepath: Path) -> bool:
 def is_likely_text_file(filepath: Path) -> bool:
     """
     Detect if file is likely text based on name patterns and content.
+
+    Uses three-tier matching:
+    1. Exact filename matches (e.g., "readme", "dockerfile")
+    2. Prefix patterns (e.g., "dockerfile*" matches "Dockerfile.sandbox")
+    3. Suffix patterns (e.g., ".env" matches ".env.example")
     """
-    text_filenames = {
-        "readme",
-        "license",
-        "licence",
-        "changelog",
-        "changes",
-        "authors",
-        "contributors",
-        "copying",
-        "install",
-        "news",
-        "todo",
-        "version",
-        "dockerfile",
-        "makefile",
-        "rakefile",
-        "gemfile",
-        "pipfile",
-        "procfile",
-        "vagrantfile",
-        "jenkinsfile",
-        "cname",
-        "notice",
-        "manifest",
-        "copyright",
+    KNOWN_BINARY_DOTFILE_EXTENSIONS = {
+        ".pyc",
+        ".pyo",
+        ".pyd",
+        ".so",
+        ".dylib",
+        ".dll",
+        ".class",
     }
 
-    if filepath.name.lower() in text_filenames:
-        return not is_binary_file(filepath)
-
-    if filepath.name.startswith(".") and len(filepath.name) > 1:
-        skip_dotfiles = {
-            ".git",
-            ".ds_store",
-            ".pyc",
-            ".pyo",
-            ".pyd",
-            ".so",
-            ".dylib",
-            ".dll",
-        }
-        if filepath.name.lower() not in skip_dotfiles:
-            return not is_binary_file(filepath)
-
-    if not filepath.suffix:
-        return not is_binary_file(filepath)
-
-    possible_text_extensions = {
+    KNOWN_TEXT_EXTENSIONS = {
         ".ini",
         ".cfg",
         ".conf",
         ".config",
         ".properties",
-        ".env",
-        ".envrc",
         ".ignore",
         ".keep",
         ".gitkeep",
@@ -199,7 +165,70 @@ def is_likely_text_file(filepath: Path) -> bool:
         ".handlebars",
     }
 
-    if filepath.suffix.lower() in possible_text_extensions:
+    TEXT_FILENAME_EXACT = {
+        "readme",
+        "license",
+        "licence",
+        "changelog",
+        "changes",
+        "authors",
+        "contributors",
+        "copying",
+        "install",
+        "news",
+        "todo",
+        "version",
+        "dockerfile",
+        "makefile",
+        "rakefile",
+        "gemfile",
+        "pipfile",
+        "procfile",
+        "vagrantfile",
+        "jenkinsfile",
+        "cname",
+        "notice",
+        "manifest",
+        "copyright",
+    }
+
+    TEXT_FILENAME_PREFIXES = (
+        "dockerfile",
+        "makefile",
+        "rakefile",
+        "gemfile",
+        "pipfile",
+        "procfile",
+        "vagrantfile",
+        "jenkinsfile",
+    )
+
+    TEXT_FILENAME_PREFIXES_ENV = (
+        ".env",
+        ".envrc",
+    )
+
+    name = filepath.name.lower()
+    file_exists = filepath.exists()
+
+    if name in TEXT_FILENAME_EXACT:
+        return not is_binary_file(filepath) if file_exists else True
+
+    if name.startswith(TEXT_FILENAME_PREFIXES):
+        return not is_binary_file(filepath) if file_exists else True
+
+    if name.startswith(TEXT_FILENAME_PREFIXES_ENV):
+        return not is_binary_file(filepath) if file_exists else True
+
+    if name.startswith("."):
+        if filepath.suffix.lower() in KNOWN_BINARY_DOTFILE_EXTENSIONS:
+            return False
+        return not is_binary_file(filepath)
+
+    if not filepath.suffix:
+        return not is_binary_file(filepath)
+
+    if filepath.suffix.lower() in KNOWN_TEXT_EXTENSIONS:
         return not is_binary_file(filepath)
 
     return False
@@ -227,6 +256,17 @@ def matches_file_type(
     file_ext = filepath.suffix.lower()
     file_name = filepath.name.lower()
 
+    FILENAME_PREFIXES = (
+        "dockerfile",
+        "makefile",
+        "rakefile",
+        "gemfile",
+        "pipfile",
+        "procfile",
+        "vagrantfile",
+        "jenkinsfile",
+    )
+
     # Only log the full configuration once
     if not hasattr(matches_file_type, "_logged_config"):
         logger.debug("File type matching configuration:")
@@ -241,6 +281,12 @@ def matches_file_type(
     if file_name in selected_names:
         matches = True
         reason = f"file name matches selected name pattern"
+    elif (
+        file_name.startswith(FILENAME_PREFIXES)
+        and file_name.removesuffix(file_ext) in selected_names
+    ):
+        matches = True
+        reason = f"file name prefix matches selected name pattern"
     elif file_ext in selected_exts:
         matches = True
         reason = f"file extension matches selected patterns"
