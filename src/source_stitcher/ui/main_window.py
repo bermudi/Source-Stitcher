@@ -540,6 +540,8 @@ class FileConcatenator(QtWidgets.QMainWindow):
                     relative_path_str_for_ignore
                 ):
                     continue
+                if entry.name == "node_modules":
+                    continue
                 if (
                     entry.name.startswith(".")
                     and not self.include_hidden_files_checkbox.isChecked()
