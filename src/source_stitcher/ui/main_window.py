@@ -74,7 +74,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self._debounce_timer = QtCore.QTimer()
         self._debounce_timer.setSingleShot(True)
         self._debounce_timer.timeout.connect(self._update_token_estimate)
-        
+
         try:
             self.token_encoder = tiktoken.get_encoding("o200k_base")
         except Exception:
@@ -201,12 +201,12 @@ class FileConcatenator(QtWidgets.QMainWindow):
 
         # Add token status panel
         token_panel_layout = QtWidgets.QHBoxLayout()
-        
+
         # Token count label
         self.token_count_label = QtWidgets.QLabel("📊 Tokens: ~0")
         self.token_count_label.setStyleSheet("font-weight: bold;")
         token_panel_layout.addWidget(self.token_count_label)
-        
+
         # Budget dropdown
         token_panel_layout.addWidget(QtWidgets.QLabel("Budget:"))
         self.token_budget_combo = QtWidgets.QComboBox()
@@ -214,11 +214,11 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self.token_budget_combo.setCurrentText(DEFAULT_TOKEN_BUDGET)
         self.token_budget_combo.currentTextChanged.connect(self.on_token_budget_changed)
         token_panel_layout.addWidget(self.token_budget_combo)
-        
+
         # Status indicator
         self.token_status_label = QtWidgets.QLabel("✅ Within limit")
         token_panel_layout.addWidget(self.token_status_label)
-        
+
         token_panel_layout.addStretch()
         main_layout.addLayout(token_panel_layout)
 
@@ -540,7 +540,10 @@ class FileConcatenator(QtWidgets.QMainWindow):
                     relative_path_str_for_ignore
                 ):
                     continue
-                if entry.name.startswith(".") and not self.include_hidden_files_checkbox.isChecked():
+                if (
+                    entry.name.startswith(".")
+                    and not self.include_hidden_files_checkbox.isChecked()
+                ):
                     continue
                 if search_text and search_text not in entry.name.lower():
                     continue
@@ -704,7 +707,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         while parent:
             self._update_parent_check_state(parent)
             parent = parent.parent()
-        
+
         # Trigger token estimation update with debounce
         self._schedule_token_update()
 
@@ -717,14 +720,14 @@ class FileConcatenator(QtWidgets.QMainWindow):
         """Update the token estimate for selected files."""
         if not self.token_encoder:
             return
-            
+
         selected_paths = self._collect_selected_paths_recursive()
         total_tokens = 0
-        
+
         # Get current filter settings to match generation behavior
         selected_exts, selected_names, handle_other = self.get_selected_filter_sets()
         include_hidden = self.include_hidden_files_checkbox.isChecked()
-        
+
         # Expand directories to get actual files (use set to avoid duplicates)
         files_to_count: set[Path] = set()
         for path in selected_paths:
@@ -732,33 +735,53 @@ class FileConcatenator(QtWidgets.QMainWindow):
                 # Walk directory to find all files, applying filters
                 for root, dirs, filenames in os.walk(path):
                     root_path = Path(root)
-                    
+
                     # Filter directories in-place (same as ProjectFileWalker)
-                    if not include_hidden:
-                        dirs[:] = [d for d in dirs if not d.startswith(".")]
-                    
+                    dirs[:] = [
+                        d
+                        for d in dirs
+                        if d != "node_modules"
+                        and (include_hidden or not d.startswith("."))
+                    ]
+
                     # Apply ignore patterns to directories
                     try:
                         rel_root = root_path.relative_to(self.working_dir)
                         if self.ignore_spec:
-                            dirs[:] = [d for d in dirs 
-                                       if not self.ignore_spec.match_file(str(rel_root / d) + "/")]
+                            dirs[:] = [
+                                d
+                                for d in dirs
+                                if not self.ignore_spec.match_file(
+                                    str(rel_root / d) + "/"
+                                )
+                            ]
                         if self.global_ignore_spec:
-                            dirs[:] = [d for d in dirs 
-                                       if not self.global_ignore_spec.match_file(str(rel_root / d) + "/")]
+                            dirs[:] = [
+                                d
+                                for d in dirs
+                                if not self.global_ignore_spec.match_file(
+                                    str(rel_root / d) + "/"
+                                )
+                            ]
                     except ValueError:
                         pass
-                    
+
                     for fname in filenames:
                         file_path = root_path / fname
-                        if self._should_count_file(file_path, selected_exts, selected_names, 
-                                                   handle_other, include_hidden):
+                        if self._should_count_file(
+                            file_path,
+                            selected_exts,
+                            selected_names,
+                            handle_other,
+                            include_hidden,
+                        ):
                             files_to_count.add(file_path)
             elif path.is_file():
-                if self._should_count_file(path, selected_exts, selected_names, 
-                                           handle_other, include_hidden):
+                if self._should_count_file(
+                    path, selected_exts, selected_names, handle_other, include_hidden
+                ):
                     files_to_count.add(path)
-        
+
         for path in files_to_count:
             if path in self.token_cache:
                 total_tokens += self.token_cache[path]
@@ -767,31 +790,39 @@ class FileConcatenator(QtWidgets.QMainWindow):
                 try:
                     content = path.read_text(encoding="utf-8", errors="ignore")
                     # Add overhead for markdown wrapper
-                    wrapper_overhead = len(f"\n--- File: {path.relative_to(self.working_dir)} ---\n```\n\n```\n")
-                    token_count = len(self.token_encoder.encode(content)) + wrapper_overhead
+                    wrapper_overhead = len(
+                        f"\n--- File: {path.relative_to(self.working_dir)} ---\n```\n\n```\n"
+                    )
+                    token_count = (
+                        len(self.token_encoder.encode(content)) + wrapper_overhead
+                    )
                     self.token_cache[path] = token_count
                     total_tokens += token_count
                 except Exception as e:
                     logger.debug(f"Could not read {path} for token counting: {e}")
                     continue
-        
+
         # Update UI
         self.token_count_label.setText(f"📊 Tokens: ~{total_tokens:,}")
-        
+
         # Check against budget
         budget_key = self.token_budget_combo.currentText()
         budget = TOKEN_BUDGETS.get(budget_key)
-        
+
         if budget is None:
             self.token_status_label.setText("✅ No limit")
             self.token_status_label.setStyleSheet("color: green;")
         elif total_tokens <= budget:
             remaining = budget - total_tokens
-            self.token_status_label.setText(f"✅ Within limit ({self._format_token_count(remaining)} remaining)")
+            self.token_status_label.setText(
+                f"✅ Within limit ({self._format_token_count(remaining)} remaining)"
+            )
             self.token_status_label.setStyleSheet("color: green;")
         else:
             over = total_tokens - budget
-            self.token_status_label.setText(f"⚠️ Over by {self._format_token_count(over)}")
+            self.token_status_label.setText(
+                f"⚠️ Over by {self._format_token_count(over)}"
+            )
             self.token_status_label.setStyleSheet("color: red; font-weight: bold;")
 
     def _should_count_file(
@@ -803,33 +834,35 @@ class FileConcatenator(QtWidgets.QMainWindow):
         include_hidden: bool,
     ) -> bool:
         """Check if a file should be counted for token estimation.
-        
+
         Applies the same filtering logic as ProjectFileWalker to ensure
         the live token count matches the final generated output.
         """
         # Skip hidden files unless explicitly included
         if file_path.name.startswith(".") and not include_hidden:
             return False
-        
+
         # Skip empty files
         try:
             if file_path.stat().st_size == 0:
                 return False
         except OSError:
             return False
-        
+
         # Apply ignore patterns
         try:
             rel_path = file_path.relative_to(self.working_dir)
             rel_path_str = str(rel_path)
-            
+
             if self.ignore_spec and self.ignore_spec.match_file(rel_path_str):
                 return False
-            if self.global_ignore_spec and self.global_ignore_spec.match_file(rel_path_str):
+            if self.global_ignore_spec and self.global_ignore_spec.match_file(
+                rel_path_str
+            ):
                 return False
         except ValueError:
             pass
-        
+
         # Check file type matching (extensions/filenames)
         if not matches_file_type(
             file_path,
@@ -840,11 +873,11 @@ class FileConcatenator(QtWidgets.QMainWindow):
             handle_other,
         ):
             return False
-        
+
         # Skip binary files
         if is_binary_file(file_path):
             return False
-        
+
         return True
 
     def _format_token_count(self, count: int) -> str:
