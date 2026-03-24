@@ -2,15 +2,21 @@
 
 import logging
 from pathlib import Path
+from types import ModuleType
 from typing import Optional
 
+tomllib: Optional[ModuleType] = None
 try:
-    import tomllib  # Python 3.11+
+    import tomllib  # type: ignore[import-not-found]
 except ImportError:
-    try:
-        import tomli as tomllib  # Fallback for older Python versions
-    except ImportError:
-        tomllib = None
+    pass
+
+try:
+    import tomli as _tomllib  # type: ignore[import-not-found]
+
+    tomllib = _tomllib
+except ImportError:
+    pass
 
 
 def get_version() -> str:

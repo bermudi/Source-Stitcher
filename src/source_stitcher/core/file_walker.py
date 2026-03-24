@@ -5,7 +5,7 @@ import os
 import stat
 import time
 from pathlib import Path
-from typing import List, Set, Tuple, Optional
+from typing import Any, Callable, List, Set, Tuple, Optional
 import pathspec
 
 from ..config import WorkerConfig
@@ -21,7 +21,9 @@ class ProjectFileWalker:
     """
 
     def __init__(
-        self, config: WorkerConfig, progress_callback: Optional[callable] = None
+        self,
+        config: WorkerConfig,
+        progress_callback: Optional[Callable[[str], Any]] = None,
     ):
         """
         Initialize the file walker with configuration.
@@ -284,7 +286,10 @@ class ProjectFileWalker:
             return True
 
         # Skip hidden directories unless explicitly requested
-        if dir_name.startswith(".") and not self.config.filter_settings.include_hidden_files:
+        if (
+            dir_name.startswith(".")
+            and not self.config.filter_settings.include_hidden_files
+        ):
             return True
 
         full_dir_path_str = str(root_relative_to_base / dir_name) + "/"
@@ -339,7 +344,10 @@ class ProjectFileWalker:
             return False
 
         # Skip hidden files unless explicitly requested
-        if file_path.name.startswith(".") and not self.config.filter_settings.include_hidden_files:
+        if (
+            file_path.name.startswith(".")
+            and not self.config.filter_settings.include_hidden_files
+        ):
             return False
 
         # Check for duplicate files (same inode)

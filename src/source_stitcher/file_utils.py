@@ -3,10 +3,13 @@
 import logging
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
 import pathspec
 
 logger = logging.getLogger(__name__)
+
+
+_logged_config: bool = False
 
 
 def load_ignore_patterns(
@@ -268,12 +271,13 @@ def matches_file_type(
     )
 
     # Only log the full configuration once
-    if not hasattr(matches_file_type, "_logged_config"):
+    global _logged_config
+    if not _logged_config:
         logger.debug("File type matching configuration:")
         logger.debug(f"  - Selected extensions: {selected_exts}")
         logger.debug(f"  - Selected names: {selected_names}")
         logger.debug(f"  - Handle other files: {handle_other}")
-        matches_file_type._logged_config = True
+        _logged_config = True
 
     matches = False
     reason = ""

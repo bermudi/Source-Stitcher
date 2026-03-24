@@ -11,7 +11,7 @@ from .info import show_supported_file_types, show_version_info
 
 
 def show_helpful_error(
-    parser: argparse.ArgumentParser, error_msg: str, suggestion: str = None
+    parser: argparse.ArgumentParser, error_msg: str, suggestion: Optional[str] = None
 ):
     """Display helpful error messages with usage hints."""
     print(f"Error: {error_msg}", file=sys.stderr)

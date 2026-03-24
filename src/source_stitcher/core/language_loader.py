@@ -1,13 +1,24 @@
 """Language definition loader for external TOML configuration."""
 
 import logging
+from types import ModuleType
+from typing import Optional
+
+tomllib: Optional[ModuleType] = None
+try:
+    import tomllib  # type: ignore[import-not-found]
+except ImportError:
+    pass
 
 try:
-    import tomllib  # Python 3.11+
+    import tomli as _tomllib  # type: ignore[import-not-found]
+
+    tomllib = _tomllib
 except ImportError:
-    import tomli as tomllib  # Python < 3.11
+    pass
+
 from pathlib import Path
-from typing import Dict, List, Set, Optional, Union
+from typing import Dict, List, Set, Optional, Union, cast
 
 logger = logging.getLogger(__name__)
 
@@ -82,8 +93,11 @@ class LanguageDefinitionLoader:
             return None
 
         try:
+            if tomllib is None:
+                logger.error("tomllib is not available")
+                return None
             with open(self.config_path, "rb") as f:
-                data = tomllib.load(f)
+                data = cast(ModuleType, tomllib).load(f)
 
             logger.info(
                 f"Successfully loaded language definitions from {self.config_path}"

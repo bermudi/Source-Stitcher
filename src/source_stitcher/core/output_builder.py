@@ -113,15 +113,12 @@ class HeaderBuilder:
         Returns:
             Human-readable size string
         """
+        num = float(num_bytes)
         for unit in ["bytes", "KB", "MB", "GB", "TB"]:
-            if num_bytes < 1024.0 or unit == "TB":
-                return (
-                    f"{num_bytes:.2f} {unit}"
-                    if unit != "bytes"
-                    else f"{int(num_bytes)} {unit}"
-                )
-            num_bytes /= 1024.0
-        return f"{num_bytes:.2f} TB"
+            if num < 1024.0 or unit == "TB":
+                return f"{num:.2f} {unit}" if unit != "bytes" else f"{int(num)} {unit}"
+            num /= 1024.0
+        return f"{num:.2f} TB"
 
 
 class ContentStreamer:

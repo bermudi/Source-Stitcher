@@ -4,6 +4,7 @@ import logging
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +17,7 @@ class CLIProgressReporter:
         self.quiet = quiet
         self.total_files = 0
         self.processed_files = 0
-        self.start_time = None
+        self.start_time: Optional[float] = None
         logger.debug(
             f"CLIProgressReporter initialized with show_progress={show_progress}, quiet={quiet}"
         )
@@ -46,14 +47,15 @@ class CLIProgressReporter:
     def get_summary_stats(self, output_file: Path) -> dict:
         """Generate summary statistics for final output."""
         logger.debug("Calculating summary stats...")
+        processing_time: float | None = None
+        if self.start_time:
+            processing_time = time.time() - self.start_time
+
         stats = {
             "total_files_found": self.total_files,
-            "processing_time": None,
+            "processing_time": processing_time,
             "output_size": 0,
         }
-
-        if self.start_time:
-            stats["processing_time"] = time.time() - self.start_time
 
         if output_file.exists():
             stats["output_size"] = output_file.stat().st_size

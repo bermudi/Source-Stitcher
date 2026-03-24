@@ -4,7 +4,7 @@ import logging
 import os
 import stat
 from pathlib import Path
-from typing import List, Optional, Set, Tuple, Dict
+from typing import Any, List, Optional, Set, Tuple, Dict
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 import tiktoken
@@ -76,7 +76,7 @@ class FileConcatenator(QtWidgets.QMainWindow):
         self._debounce_timer.timeout.connect(self._update_token_estimate)
 
         try:
-            self.token_encoder = tiktoken.get_encoding("o200k_base")
+            self.token_encoder: Any = tiktoken.get_encoding("o200k_base")
         except Exception:
             logger.warning("Failed to initialize token encoder")
             self.token_encoder = None

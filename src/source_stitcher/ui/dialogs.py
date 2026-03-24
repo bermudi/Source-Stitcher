@@ -5,10 +5,10 @@ import os
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from PyQt6 import QtCore, QtWidgets
-from atomicwrites import atomic_write
+from atomicwrites import atomic_write  # type: ignore[import-untyped]
 import tiktoken
 
 from ..core.tree_generator import ProjectTreeGenerator
@@ -33,7 +33,7 @@ class SaveFileDialog:
         temp_file_path: str,
         working_dir: Path,
         selected_language_names: list,
-        processed_files: list = None,
+        processed_files: Optional[list[Any]] = None,
     ) -> None:
         """Handles the save file dialog and writing the output."""
         desktop_path = self._find_desktop_path()
@@ -125,14 +125,13 @@ class SaveFileDialog:
         logger.debug(f"Generated filename: {initial_filename}")
         return initial_filename
 
-    
     def _write_output_file(
         self,
         output_filename: str,
         temp_file_path: str,
         working_dir: Path,
         selected_language_names: list,
-        processed_files: list = None,
+        processed_files: Optional[list[Any]] = None,
     ) -> None:
         """Write the final output file."""
         logger.debug(f"Writing output to file: {output_filename}")
@@ -172,9 +171,7 @@ class SaveFileDialog:
             try:
                 os.unlink(temp_file_path)
             except OSError as e:
-                logger.warning(
-                    f"Could not remove temporary file {temp_file_path}: {e}"
-                )
+                logger.warning(f"Could not remove temporary file {temp_file_path}: {e}")
 
         logger.info(f"Successfully generated file: {output_filename}")
         success_message = [
@@ -186,9 +183,7 @@ class SaveFileDialog:
             f"File size: {output_path.stat().st_size:,} bytes",
         ]
         if token_count is not None:
-            success_message.append(
-                f"Token count (o200k_base): {token_count:,}"
-            )
+            success_message.append(f"Token count (o200k_base): {token_count:,}")
         QtWidgets.QMessageBox.information(
             self.parent,
             "Success",

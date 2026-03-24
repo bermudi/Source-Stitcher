@@ -4,6 +4,7 @@ import logging
 import shutil
 import sys
 from pathlib import Path
+from typing import Any, List, Optional
 
 from PyQt6 import QtCore
 
@@ -44,11 +45,11 @@ def run_cli_mode(cli_config: CLIConfig) -> int:
             show_progress=cli_config.progress, quiet=cli_config.quiet
         )
 
-        completion_state = {
+        completion_state: dict[str, Any] = {
             "finished": False,
-            "temp_file": None,
+            "temp_file": "",
             "processed_files": [],
-            "error": None,
+            "error": "",
         }
 
         def on_finished(temp_file: str, processed_files: list, error_message: str):
@@ -86,11 +87,13 @@ def run_cli_mode(cli_config: CLIConfig) -> int:
 
         app.exec()
 
-        if completion_state["error"]:
-            logger.error(f"Processing failed: {completion_state['error']}")
+        error_msg = completion_state.get("error", "")
+        if error_msg:
+            logger.error(f"Processing failed: {error_msg}")
             return 4
 
-        if not completion_state["temp_file"]:
+        temp_file = completion_state.get("temp_file", "")
+        if not temp_file:
             logger.error("No output file generated")
             return 4
 
@@ -98,7 +101,7 @@ def run_cli_mode(cli_config: CLIConfig) -> int:
             if cli_config.output_file.exists() and not cli_config.overwrite:
                 logger.error(f"Output file already exists: {cli_config.output_file}")
                 logger.error("Use --overwrite flag to overwrite existing files")
-                temp_path = Path(completion_state["temp_file"])
+                temp_path = Path(temp_file)
                 if temp_path.exists():
                     temp_path.unlink()
                 return 5
@@ -106,9 +109,9 @@ def run_cli_mode(cli_config: CLIConfig) -> int:
             cli_config.output_file.parent.mkdir(parents=True, exist_ok=True)
 
             logger.debug(
-                f"Moving temporary file {completion_state['temp_file']} to final location: {cli_config.output_file}"
+                f"Moving temporary file {temp_file} to final location: {cli_config.output_file}"
             )
-            shutil.move(completion_state["temp_file"], cli_config.output_file)
+            shutil.move(temp_file, cli_config.output_file)
 
             logger.info(
                 f"CLI processing complete. Output written to: {cli_config.output_file}"
@@ -120,7 +123,7 @@ def run_cli_mode(cli_config: CLIConfig) -> int:
 
         except OSError as e:
             logger.error(f"Failed to write output file: {e}")
-            temp_path = Path(completion_state["temp_file"])
+            temp_path = Path(temp_file)
             if temp_path.exists():
                 temp_path.unlink()
             return 5
